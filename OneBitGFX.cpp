@@ -22,10 +22,10 @@
 #include "OneBitGFX.h"
 
 // forward references
-static int TIFFInit(TIFFIMAGE *pTIFF);
-static int TIFFParseInfo(TIFFIMAGE *pPage);
-static void TIFFGetMoreData(TIFFIMAGE *pPage);
-static int DecodeTIFF(TIFFIMAGE *pImage);
+static int OBGFXInit(OBGFXIMAGE *pTIFF);
+static int OBGFXParseInfo(OBGFXIMAGE *pPage);
+static void OBGFXGetMoreData(OBGFXIMAGE *pPage);
+static int Decode(OBGFXIMAGE *pImage);
 
 /* Table of byte flip values to mirror-image incoming CCITT data */
 static const uint8_t ucMirror[256]=
@@ -228,71 +228,10 @@ static const int16_t black_l[1024] =
      7,12,7,12,7,12,7,12,7,12,7,12,7,12,7,12};
 uint32_t *pBlack_L_32 = (uint32_t *)&black_l[0];
 
-
-/* Table of vertical codes for G4 encoding */
-/* code followed by length, starting with v(-3) */
-static const uint8_t vtable[14] =
-        {3,7,     /* V(-3) = 0000011 */
-         3,6,     /* V(-2) = 000011  */
-         3,3,     /* V(-1) = 011     */
-         1,1,     /* V(0)  = 1       */
-         2,3,     /* V(1)  = 010     */
-         2,6,     /* V(2)  = 000010  */
-         2,7};    /* V(3)  = 0000010 */
-
-
-/* Group 3 Huffman codes ordered for MH encoding */
-/* first, the terminating codes for white (code, length) */
-static const uint8_t huff_white[128] =
-        {0x35,8,7,6,7,4,8,4,0xb,4, /* 0,1,2,3,4 */
-         0xc,4,0xe,4,0xf,4,0x13,5,0x14,5,7,5,8,5, /* 5,6,7,8,9,10,11 */
-         8,6,3,6,0x34,6,0x35,6,0x2a,6,0x2b,6,0x27,7, /* 12,13,14,15,16,17,18 */
-         0xc,7,8,7,0x17,7,3,7,4,7,0x28,7,0x2b,7, /* 19,20,21,22,23,24,25 */
-         0x13,7,0x24,7,0x18,7,2,8,3,8,0x1a,8,0x1b,8, /* 26,27,28,29,30,31,32 */
-         0x12,8,0x13,8,0x14,8,0x15,8,0x16,8,0x17,8,0x28,8, /* 33,34,35,36,37,38,39 */
-         0x29,8,0x2a,8,0x2b,8,0x2c,8,0x2d,8,4,8,5,8, /* 40,41,42,43,44,45,46 */
-         0xa,8,0xb,8,0x52,8,0x53,8,0x54,8,0x55,8,0x24,8, /* 47,48,49,50,51,52,53 */
-         0x25,8,0x58,8,0x59,8,0x5a,8,0x5b,8,0x4a,8,0x4b,8, /* 54,55,56,57,58,59,60 */
-         0x32,8,0x33,8,0x34,8};                        /* 61,62,63 */
-
-/* now the white make-up codes */
-static const uint8_t huff_wmuc[82] =
-       {0,0,0x1b,5,0x12,5,0x17,6,0x37,7,0x36,8,   /* null,64,128,192,256,320 */
-        0x37,8,0x64,8,0x65,8,0x68,8,0x67,8,0xcc,9, /* 384,448,512,576,640,704 */
-        0xcd,9,0xd2,9,0xd3,9,0xd4,9,0xd5,9,    /* 768,832,896,960,1024 */
-        0xd6,9,0xd7,9,0xd8,9,0xd9,9,0xda,9,    /* 1088,1152,1216,1280,1344 */
-        0xdb,9,0x98,9,0x99,9,0x9a,9,0x18,6,    /* 1408,1472,1536,1600,1664 */
-        0x9b,9,8,11,0xc,11,0xd,11,0x12,12,     /* 1728,1792,1856,1920,1984 */
-        0x13,12,0x14,12,0x15,12,0x16,12,0x17,12, /* 2048,2112,2176,2240,2304 */
-        0x1c,12,0x1d,12,0x1e,12,0x1f,12};       /* 2368,2432,2496,2560 */
-
-/* black terminating codes */
-static const uint8_t huff_black[128] =
-      {0x37,10,2,3,3,2,2,2,3,3,                         /* 0,1,2,3,4 */
-       3,4,2,4,3,5,5,6,4,6,4,7,5,7,                     /* 5,6,7,8,9,10,11 */
-       7,7,4,8,7,8,0x18,9,0x17,10,0x18,10,8,10,         /* 12,13,14,15,16,17,18 */
-       0x67,11,0x68,11,0x6c,11,0x37,11,0x28,11,0x17,11, /* 19,20,21,22,23,24 */
-       0x18,11,0xca,12,0xcb,12,0xcc,12,0xcd,12,0x68,12, /* 25,26,27,28,29,30 */
-       0x69,12,0x6a,12,0x6b,12,0xd2,12,0xd3,12,0xd4,12, /* 31,32,33,34,35,36 */
-       0xd5,12,0xd6,12,0xd7,12,0x6c,12,0x6d,12,0xda,12, /* 37,38,39,40,41,42 */
-       0xdb,12,0x54,12,0x55,12,0x56,12,0x57,12,0x64,12, /* 43,44,45,46,47,48 */
-       0x65,12,0x52,12,0x53,12,0x24,12,0x37,12,0x38,12, /* 49,50,51,52,53,54 */
-       0x27,12,0x28,12,0x58,12,0x59,12,0x2b,12,0x2c,12, /* 55,56,57,58,59,60 */
-       0x5a,12,0x66,12,0x67,12};                        /* 61,62,63 */
-/* black make up codes */
-static const uint8_t huff_bmuc[82] =
-       {0,0,0xf,10,0xc8,12,0xc9,12,0x5b,12,0x33,12, /* null,64,128,192,256,320 */
-        0x34,12,0x35,12,0x6c,13,0x6d,13,0x4a,13,0x4b,13,   /* 384,448,512,576,640,704 */
-        0x4c,13,0x4d,13,0x72,13,0x73,13,0x74,13,0x75,13,   /* 768,832,896,960,1024,1088 */
-        0x76,13,0x77,13,0x52,13,0x53,13,0x54,13,0x55,13,   /* 1152,1216,1280,1344,1408,1472 */
-        0x5a,13,0x5b,13,0x64,13,0x65,13,8,11,0xc,11,       /* 1536,1600,1664,1728,1792,1856 */
-        0xd,11,0x12,12,0x13,12,0x14,12,0x15,12,0x16,12,    /* 1920,1984,2048,2112,2176,2240 */
-        0x17,12,0x1c,12,0x1d,12,0x1e,12,0x1f,12};          /* 2304,2368,2432,2496,2560 */
-
 //
 // Helper functions for memory based images
 //
-static int32_t readMem(TIFFFILE *pFile, uint8_t *pBuf, int32_t iLen)
+static int32_t readMem(OBGFXFILE *pFile, uint8_t *pBuf, int32_t iLen)
 {
     int32_t iBytesRead;
 
@@ -306,7 +245,7 @@ static int32_t readMem(TIFFFILE *pFile, uint8_t *pBuf, int32_t iLen)
     return iBytesRead;
 } /* readMem() */
 
-static int32_t seekMem(TIFFFILE *pFile, int32_t iPosition)
+static int32_t seekMem(OBGFXFILE *pFile, int32_t iPosition)
 {
     if (iPosition < 0) iPosition = 0;
     else if (iPosition >= pFile->iSize) iPosition = pFile->iSize-1;
@@ -317,56 +256,73 @@ static int32_t seekMem(TIFFFILE *pFile, int32_t iPosition)
 //
 // Memory initialization
 //
-int ONEBITGFX::open(uint8_t *pData, int iDataSize, TIFF_DRAW_CALLBACK *pfnDraw)
+int ONEBITGFX::openTIFF(uint8_t *pData, int iDataSize, OBGFX_DRAW_CALLBACK *pfnDraw)
 {
-    memset(&_jpeg, 0, sizeof(JPEGIMAGE));
-    _tiff.pfnRead = readMem;
-    _tiff.pfnSeek = seekMem;
-    _tiff.pfnDraw = pfnDraw;
-    _tiff.pfnOpen = NULL;
-    _tiff.pfnClose = NULL;
-    _tiff.TIFFFile.iSize = iDataSize;
-    _tiff.TIFFFile.pData = pData;
-    return TIFFInit(&_tiff);
-} /* open() */
+    memset(&_obgfx, 0, sizeof(OBGFXIMAGE));
+    _obgfx.pfnRead = readMem;
+    _obgfx.pfnSeek = seekMem;
+    _obgfx.pfnDraw = pfnDraw;
+    _obgfx.pfnOpen = NULL;
+    _obgfx.pfnClose = NULL;
+    _obgfx.OBGFXFile.iSize = iDataSize;
+    _obgfx.OBGFXFile.pData = pData;
+    return OBGFXInit(&_obgfx);
+} /* openTIFF() */
+
+// Work with 'headerless' compressed G4 data
+int ONEBITGFX::openRAW(int iWidth, int iHeight, int iFillOrder, uint8_t *pData, int iDataSize, OBGFX_DRAW_CALLBACK *pfnDraw)
+{
+    memset(&_obgfx, 0, sizeof(OBGFXIMAGE));
+    _obgfx.pfnRead = readMem;
+    _obgfx.pfnSeek = seekMem;
+    _obgfx.pfnDraw = pfnDraw;
+    _obgfx.pfnOpen = NULL;
+    _obgfx.pfnClose = NULL;
+    _obgfx.OBGFXFile.iSize = iDataSize;
+    _obgfx.OBGFXFile.pData = pData;
+    _obgfx.iWidth = iWidth;
+    _obgfx.iHeight = iHeight;
+    _obgfx.ucFillOrder = (uint8_t)iFillOrder;
+    return 1;
+} /* openRAW() */
 
 int ONEBITGFX::getLastError()
 {
-    return _tiff.iError;
+    return _obgfx.iError;
 } /* getLastError() */
 
 int ONEBITGFX::getWidth()
 {
-    return _tiff.iWidth;
+    return _obgfx.iWidth;
 } /* getWidth() */
 
 int ONEBITGFX::getHeight()
 {
-    return _tiff.iHeight;
+    return _obgfx.iHeight;
 } /* getHeight() */
 
 //
 // File (SD/MMC) based initialization
 //
-int ONEBITGFX::open(char *szFilename, TIFF_OPEN_CALLBACK *pfnOpen, TIFF_CLOSE_CALLBACK *pfnClose, TIFF_READ_CALLBACK *pfnRead, TIFF_SEEK_CALLBACK *pfnSeek, TIFF_DRAW_CALLBACK *pfnDraw)
+int ONEBITGFX::openTIFF(char *szFilename, OBGFX_OPEN_CALLBACK *pfnOpen, OBGFX_CLOSE_CALLBACK *pfnClose, OBGFX_READ_CALLBACK *pfnRead, OBGFX_SEEK_CALLBACK *pfnSeek, OBGFX_DRAW_CALLBACK *pfnDraw)
 {
-    memset(&_jpeg, 0, sizeof(TIFFIMAGE));
-    _tiff.pfnRead = pfnRead;
-    _tiff.pfnSeek = pfnSeek;
-    _tiff.pfnDraw = pfnDraw;
-    _tiff.pfnOpen = pfnOpen;
-    _tiff.pfnClose = pfnClose;
-    _tiff.TIFFFile.fHandle = (*pfnOpen)(szFilename, &_tiff.TIFFFile.iSize);
-    if (_tiff.TIFFFile.fHandle == NULL)
+    memset(&_obgfx, 0, sizeof(OBGFXIMAGE));
+    _obgfx.pfnRead = pfnRead;
+    _obgfx.pfnSeek = pfnSeek;
+    _obgfx.pfnDraw = pfnDraw;
+    _obgfx.pfnOpen = pfnOpen;
+    _obgfx.pfnClose = pfnClose;
+    _obgfx.OBGFXFile.fHandle = (*pfnOpen)(szFilename, &_obgfx.OBGFXFile.iSize);
+    if (_obgfx.OBGFXFile.fHandle == NULL)
        return 0;
-    return TIFFInit(&_tiff);
+    return OBGFXInit(&_obgfx);
 
-} /* open() */
+} /* openTIFF() */
 
 void ONEBITGFX::close()
 {
-    if (_tiff.pfnClose)
-        (*_tiff.pfnClose)(_tiff.TIFFFile.fHandle);
+    if (_obgfx.pfnClose)
+        (*_obgfx.pfnClose)(_obgfx.OBGFXFile.fHandle);
 } /* close() */
 
 //
@@ -377,10 +333,10 @@ void ONEBITGFX::close()
 //
 int ONEBITGFX::decode(int x, int y, int iOptions)
 {
-    _tiff.iXOffset = x;
-    _tiff.iYOffset = y;
-    _tiff.iOptions = iOptions;
-    return DecodeTIFF(&_tiff);
+    _obgfx.iXOffset = x;
+    _obgfx.iYOffset = y;
+    _obgfx.iOptions = iOptions;
+    return Decode(&_obgfx);
 } /* decode() */
 //
 // The following functions are written in plain C and have no
@@ -391,116 +347,11 @@ int ONEBITGFX::decode(int x, int y, int iOptions)
 // returns 1 for success, 0 for failure
 // Fills in the basic image info fields of the TIFFIMAGE structure
 //
-static int TIFFInit(TIFFIMAGE *pTIFF)
+static int OBGFXInit(OBGFXIMAGE *pImage)
 {
-    return TIFFParseInfo(pTIFF, 0); // gather info for image
+    return OBGFXParseInfo(pImage); // gather info for image
 } /* TIFFInit() */
 
-/****************************************************************************
- *                                                                          *
- *  FUNCTION   : ClimbWhite(BUFFERED_BITS *)                                *
- *                                                                          *
- *  PURPOSE    : Retrieve the next Huffman code from G3 encoded data.       *
- *                                                                          *
- ****************************************************************************/
-static int32_t ClimbWhite(BUFFERED_BITS *bb)
-{
-int32_t sCode = 0; /* Start out with total = 0 */
-int iLen;
-//uint32_t ulTabVal;
-#ifdef _64BITS
-uint64_t ul;
-#else // 32bits
-uint32_t ul;
-#endif // _64BITS
-
-   iLen = 64; /* force first pass through loop */
-   while (iLen > 63)  /* Until a terminating code is found */
-      {
-      if (bb->ulBitOff > (REGISTER_WIDTH-17)) // need to fetch more bits
-         {
-         bb->pBuf += (bb->ulBitOff >> 3);
-         bb->ulBitOff &= 7;
-#ifdef _64BITS
-         bb->ulBits = MOTOEXTRALONG(bb->pBuf);
-#else // 32bits
-         bb->ulBits = MOTOLONG(bb->pBuf);
-#endif // _64BITS
-         }
-      if ((bb->ulBits << bb->ulBitOff) < LONGWHITECODEMASK) /* first 7 bits == 0 -> Long codeword? */
-         {
-//         ul = (bb->ulBits >> ((REGISTER_WIDTH-13) - bb->ulBitOff)) & 0x1ff; // we care about the lower 9 bits of a max len 13-bit code
-//         ulTabVal = pBlack_L_32[ul];
-//         bb->ulBitOff += ulTabVal & 0xff;
-//         iLen = ulTabVal >> 16;
-         ul = (bb->ulBits >> ((REGISTER_WIDTH - 14) - bb->ulBitOff)) & 0x3fe; // we care about the lower 9 bits of a max len 13-bit code
-         bb->ulBitOff += black_l[ul]; // long codes are the same for black and white runs
-         iLen = black_l[ul + 1];
-         }
-      else /* Short codeword */
-         {
-//          ul = (bb->ulBits >> ((REGISTER_WIDTH - 9) - bb->ulBitOff)) & 0x1ff; /* It is a 1-9 bit code */
-//          ulTabVal = pWhite_S_32[ul];
-//          bb->ulBitOff += ulTabVal & 0xff; /* Add the code length to bit offset */
-//          iLen = ulTabVal >> 16; /* Get the run length */
-         ul = (bb->ulBits >> ((REGISTER_WIDTH - 10) - bb->ulBitOff)) & 0x3fe; /* It is a 1-9 bit code */
-         bb->ulBitOff += white_s[ul]; /* Add the code length to bit offset */
-         iLen = white_s[ul+1]; /* Get the run length */
-         } /* Short codes */
-      sCode += iLen;
-      } /* while */
-
-   return sCode;
-} /* ClimbWhite() */
-
-/****************************************************************************
- *                                                                          *
- *  FUNCTION   : ClimbBlack(BUFFERED_BITS *)                                *
- *                                                                          *
- *  PURPOSE    : Retrieve the next Huffman code from G3 encoded data.       *
- *                                                                          *
- ****************************************************************************/
-static int32_t ClimbBlack(BUFFERED_BITS *bb)
-{
-int32_t sCode = 0; /* Start out with total = 0 */
-int iLen;
-#ifdef _64BITS
-uint64_t ul;
-#else // 32bits
-uint32_t ul;
-#endif // _64BITS
-
-   iLen = 64; /* force first pass through loop */
-
-   while (iLen > 63)  /* Until a terminating code is found */
-      {
-      if (bb->ulBitOff > (REGISTER_WIDTH - 15)) // need to read more bits
-         {
-         bb->pBuf += (bb->ulBitOff >> 3);
-         bb->ulBitOff &= 7;
-#ifdef _64BITS
-         bb->ulBits = MOTOEXTRALONG(bb->pBuf);
-#else // 32bits
-         bb->ulBits = MOTOLONG(bb->pBuf);
-#endif // _64BITS
-      }
-      if ((bb->ulBits << bb->ulBitOff) < LONGBLACKCODEMASK) /* first 4 bits == 0 -> Long codeword? */
-         {
-         ul = (bb->ulBits >> ((REGISTER_WIDTH-14)-bb->ulBitOff)) & 0x3fe;
-         bb->ulBitOff += black_l[ul];
-         iLen = black_l[ul + 1];
-         }
-      else /* Short codeword */
-         {
-         ul = (bb->ulBits >> ((REGISTER_WIDTH - 7) - bb->ulBitOff)) & 0x7e;
-         bb->ulBitOff += black_s[ul]; /* Add the code length to bit offset */
-         iLen = black_s[ul+1]; /* Get the run length */
-         } /* Short codes */
-      sCode += iLen;
-      } /* while */
-
-   return sCode;
-} /* ClimbBlack() */
 //
 // TIFFSHORT
 // read a 16-bit unsigned integer from the given pointer
@@ -571,136 +422,171 @@ static int TIFFVALUE(unsigned char *p, int bMotorola)
     
 } /* TIFFVALUE() */
 
-static int TIFFParseInfo(TIFFIMAGE *pPage)
+static int OBGFXParseInfo(OBGFXIMAGE *pPage)
 {
     int iBytesRead;
-    int i, iOffset, iTableOffset;
-    uint8_t bMotorola, ucTable, *s = pPage->ucFileBuf;
+    int i;
+    uint8_t bMotorola, *s = pPage->ucFileBuf;
     uint16_t usTagCount;
-    int IFD, iTag, iBpp = 1, iSamples = 1;
-    int iT6Options = 0, iRowsPerStrip = 0, iStripSize = 0;
+    int iStripCount, IFD, iTag, iBpp = 1, iSamples = 1;
+    int iT6Options = 0;
 
-    iBytesRead = (*pPage->pfnRead)(&pPage->TIFFFile, s, 8);
+    pPage->ucFillOrder = BITDIR_MSB_FIRST; // default to MSB first
+    iBytesRead = (*pPage->pfnRead)(&pPage->OBGFXFile, s, 8);
     if (iBytesRead != 8)
     {
-        pPage->iError = TIFF_INVALID_FILE;
+        pPage->iError = OBGFX_INVALID_FILE;
         return 0;
     }
-    if (s[0] != s[1] || s[0] != 'M' || s[0] != 'I')
+    if (s[0] != s[1] || (s[0] != 'M' && s[0] != 'I'))
     {
-        pPage->iError = TIFF_INVALID_FILE;
+        pPage->iError = OBGFX_INVALID_FILE;
         return 0; // not a TIFF file
     }
     bMotorola = (s[0] == 'M');
     IFD = TIFFLONG(&s[4], bMotorola); // get IFD
-    if (IFD > pPage->iSize - (2 + 4*TIFF_TAG_SIZE) // bad value
+    if (IFD > pPage->OBGFXFile.iSize - (2 + 4*TIFF_TAG_SIZE)) // bad value
     {
-        pPage->iError = TIFF_INVALID_FILE;
+        pPage->iError = OBGFX_INVALID_FILE;
         return 0;
     }
-    (*pPage->pfnSeek)(&pPage->TIFFFile, IFD);
-    iBytesRead = (*pPage->pfnRead)(&pPage->TIFFFile, s, 2); // get tag count
+    (*pPage->pfnSeek)(&pPage->OBGFXFile, IFD);
+    iBytesRead = (*pPage->pfnRead)(&pPage->OBGFXFile, s, 2); // get tag count
     usTagCount = TIFFSHORT(s, bMotorola);
-    if (iBytesRead != 2 || usTagCount < 4 || usTagCount < MAX_TIFF_TAGS)
+    if (iBytesRead != 2 || usTagCount < 4 || usTagCount > MAX_TIFF_TAGS)
     {
-        pPage->iError = TIFF_INVALID_FILE; // something corrupt/wrong
+        pPage->iError = OBGFX_INVALID_FILE; // something corrupt/wrong
         return 0;
     }
     // read just enough for the tag data
-    iBytesRead = (*pPage->pfnRead)(&pPage->TIFFFile, s, TIFF_TAG_SIZE * usTagCount);
+    iBytesRead = (*pPage->pfnRead)(&pPage->OBGFXFile, s, TIFF_TAG_SIZE * usTagCount);
     if (iBytesRead != usTagCount * TIFF_TAG_SIZE)
     {
-        pPage->iError = TIFF_INVALID_FILE; // something corrupt/wrong
+        pPage->iError = OBGFX_INVALID_FILE; // something corrupt/wrong
         return 0;
     }
-    iOffset = 0; /* Start at offset of first marker */
     for (i=0; i<usTagCount; i++)
     {
-        iTag = TIFFSHORT(&s[iOffset], bMotorola);
-        usLen = MOTOSHORT(&s[iOffset]); // marker length
-
+        iTag = TIFFSHORT(s, bMotorola);
         switch (iTag)
         {
             case 256: // width
-                pPage->iWidth = PILTIFFVALUE(p, bMotorola);
+                pPage->iWidth = TIFFVALUE(s, bMotorola);
                 break;
             case 257: // height
-                pPage->iHeight = PILTIFFVALUE(p, bMotorola);
+                pPage->iHeight = TIFFVALUE(s, bMotorola);
                 break;
             case 258: // bits per sample
-                iBpp = PILTIFFVALUE(p, bMotorola);
+                iBpp = TIFFVALUE(s, bMotorola);
                 break;
             case 259: // compression
-                pPage->ucCompression = (uint8_t)PILTIFFVALUE(p, bMotorola);
+                pPage->ucCompression = (uint8_t)TIFFVALUE(s, bMotorola);
                 break;
             case 262: // photometric value
-                pPage->ucPhotometric = (uint8_t)PILTIFFVALUE(p, bMotorola);
+                pPage->ucPhotometric = (uint8_t)TIFFVALUE(s, bMotorola);
                 break;
             case 266: // fill order
-                pPage->ucFillOrder = (uint8_t)PILTIFFVALUE(p, bMotorola);
+                pPage->ucFillOrder = (uint8_t)TIFFVALUE(s, bMotorola);
                 break;
             case 273: // strip info
+                pPage->iStripOffset = TIFFVALUE(s, bMotorola);
+                iStripCount = TIFFLONG(s + 4, bMotorola);
+                if (iStripCount != 1)
+                { // single strip files only (for now)
+                    pPage->iError = OBGFX_UNSUPPORTED_FEATURE;
+                    return 0;
+                }
                 break;
             case 277: // samples per pixel
-                iSamples = PILTIFFVALUE(p, bMotorola);
+                iSamples = TIFFVALUE(s, bMotorola);
                 break;
             case 278: // rows per strip
-                iRowsPerStrip = PILTIFFVALUE(p, bMotorola);
+                //iRowsPerStrip = TIFFVALUE(s, bMotorola);
                 break;
             case 279: // strip size
-                iStripSize = PILTIFFVALUE(p, bMotorola);
+                pPage->iStripSize = TIFFVALUE(s, bMotorola);
                 break;
             case 293: // T6 option flags
-                iT6Options = PILTIFFVALUE(p, bMotorola);
+                iT6Options = TIFFVALUE(s, bMotorola);
                 break;
         } // while
-        iOffset += TIFF_TAG_SIZE;
+        s += TIFF_TAG_SIZE;
+    }
+    if (iSamples * iBpp != 1) // we only support 1-bpp images
+    {
+        pPage->iError = OBGFX_UNSUPPORTED_FEATURE;
+        return 0;
     }
     return 1;
-} /* TIFFParseInfo() */
+} /* OBGFXParseInfo() */
 
-static int TIFFDrawLine(TIFFIMAGE *pPage, int y, int16_t *CurFlips)
+//
+// Read and filter more VLC data for decoding
+//
+static void OBGFXGetMoreData(OBGFXIMAGE *pPage)
+{
+//    printf("Getting more data...\n");
+    // move any existing data down
+    if ((pPage->iVLCSize - pPage->iVLCOff) >= FILE_HIGHWATER)
+        return; // buffer is already full; no need to read more data
+    if (pPage->iVLCOff != 0)
+    {
+        memcpy(&pPage->ucFileBuf[0], &pPage->ucFileBuf[pPage->iVLCOff], pPage->iVLCSize - pPage->iVLCOff);
+        pPage->iVLCSize -= pPage->iVLCOff;
+        pPage->iVLCOff = 0;
+    }
+    if (pPage->OBGFXFile.iPos < pPage->OBGFXFile.iSize && pPage->iVLCSize < FILE_HIGHWATER)
+    {
+        int i, iBytesRead;
+        // Try to read enough to fill the buffer
+        iBytesRead = (*pPage->pfnRead)(&pPage->OBGFXFile, &pPage->ucFileBuf[pPage->iVLCSize], FILE_BUF_SIZE - pPage->iVLCSize); // max length we can read
+        // flip bit direction if needed
+        if (pPage->ucFillOrder == BITDIR_LSB_FIRST)
+        {
+            for (i=0; i<iBytesRead; i++)
+                pPage->ucFileBuf[i+pPage->iVLCSize] = ucMirror[pPage->ucFileBuf[i+pPage->iVLCSize]];
+        }
+        pPage->iVLCSize += iBytesRead;
+    }
+} /* JPEGGetMoreData() */
+
+static void OBGFXDrawLine(OBGFXIMAGE *pPage, int y, int16_t *CurFlips)
 {
     
 } /* TIFFDrawLine() */
 
-static int DecodeG4(TIFFIMAGE *pPage)
+static int Decode(OBGFXIMAGE *pPage)
 {
-int x, y;
-int i, xsize;
-//int iCur, iRef;
-uint8_t *buf, *pBufEnd;
+int i, y, xsize, tot_run, tot_run1;
 int32_t sCode;
 int16_t *t1, *pCur, *pRef;
 int16_t *CurFlips, *RefFlips;
-int run, tot_run, tot_run1;
 uint32_t lBits;
-int iRow;
-    uint32_t ulBits, ulBitOff;
-uint8_t *pBuf;
+uint32_t ulBits, ulBitOff;
+uint8_t *pBuf, *pBufEnd;
 
-   xsize = pPage->iWidth; /* For performance reasons */
-
-   buf = &pPage->pData[pPage->iOffset];
+    xsize = pPage->iWidth; /* For performance reasons */
     CurFlips = pPage->CurFlips;
     RefFlips = pPage->RefFlips;
     
    /* Seed the current and reference line with XSIZE for V(0) codes */
-   for (i=0; i<xsize-2; i++)
+    for (i=0; i<xsize-2; i++)
     {
-      RefFlips[i] = xsize;
-      CurFlips[i] = xsize;
+        RefFlips[i] = xsize;
+        CurFlips[i] = xsize;
     }
    /* Prefill both current and reference lines with 7fff to prevent it from
       walking off the end if the data gets bunged and the current X is > XSIZE
       3-16-94 */
-   CurFlips[i] = RefFlips[i] = 0x7fff;
-   CurFlips[i+1] = RefFlips[i+1] = 0x7fff;
+    CurFlips[i] = RefFlips[i] = 0x7fff;
+    CurFlips[i+1] = RefFlips[i+1] = 0x7fff;
 
-   pBufEnd = &buf[iStripSize + 4]; // allow for last longword read
-   pBuf = buf;
-   ulBitOff = 0;
-   pBuf = buf;
+    pPage->iVLCSize = pPage->iVLCOff = 0;
+    (*pPage->pfnSeek)(&pPage->OBGFXFile, pPage->iStripOffset); // start of data
+    OBGFXGetMoreData(pPage); // read first block of compressed data
+    pBuf = pPage->ucFileBuf;
+    pBufEnd = &pBuf[FILE_HIGHWATER];
+    ulBitOff = 0;
 //
 // Some files may have leading 0's that would confuse the decoder
 // Valid G4 data can't begin with a 0
@@ -711,7 +597,7 @@ uint8_t *pBuf;
    ulBits = MOTOLONG(pBuf); // load 32 bits to start
     
    /* Decode the image */
-   for (y=0; y < pPage->iHeight && pBuf < pBufEnd; y++)
+   for (y=0; y < pPage->iHeight; y++)
       {
       signed int a0, a0_c, a0_p, b1;
 //g4_restart:
@@ -720,7 +606,13 @@ uint8_t *pBuf;
       pRef = RefFlips;
       a0 = -1;
       a0_c = 0; /* start just to left and white */
-      while (a0 < xsize && pBuf < pBufEnd)   /* Decode this line */
+      if (pBuf >= pBufEnd) // time to read more data
+      {
+          pPage->iVLCOff = (int)(pBuf - pPage->ucFileBuf);
+          OBGFXGetMoreData(pPage);
+          pBuf = pPage->ucFileBuf;
+      }
+      while (a0 < xsize)   /* Decode this line */
          {
          if (ulBitOff > (REGISTER_WIDTH-8)) // need at least 7 unused bits
             {
@@ -782,7 +674,7 @@ uint8_t *pBuf;
 //                     sCode = ClimbBlack(&bb);
                      if (sCode < 0)
                         {
-                        pPage->iError = PIL_ERROR_DECOMP;
+                        pPage->iError = OBGFX_DECODE_ERROR;
                         goto pilreadg4z;
                         }
                      tot_run = sCode;
@@ -790,7 +682,7 @@ uint8_t *pBuf;
 //                     sCode = ClimbWhite(&bb);
                      if (sCode < 0)
                         {
-                        pPage->iError = PIL_ERROR_DECOMP;
+                        pPage->iError = OBGFX_DECODE_ERROR;
                         goto pilreadg4z;
                         }
                      tot_run1 = sCode;
@@ -801,7 +693,7 @@ uint8_t *pBuf;
 //                     sCode = ClimbWhite(&bb);
                      if (sCode < 0)
                         {
-                        pPage->iError = PIL_ERROR_DECOMP;
+                        pPage->iError = OBGFX_DECODE_ERROR;
                         goto pilreadg4z;
                         }
                      tot_run = sCode;
@@ -809,7 +701,7 @@ uint8_t *pBuf;
 //                     sCode = ClimbBlack(&bb);
                      if (sCode < 0)
                         {
-                        pPage->iError = PIL_ERROR_DECOMP;
+                        pPage->iError = OBGFX_DECODE_ERROR;
                         goto pilreadg4z;
                         }
                      tot_run1 = sCode;
@@ -832,7 +724,7 @@ uint8_t *pBuf;
                   lBits &= 0xffc00000;
                   if (lBits != 0x3c00000)  /* If not entering uncompressed mode */
                      {
-                     pPage->iError = PIL_ERROR_DECOMP;
+                     pPage->iError = OBGFX_DECODE_ERROR;
                      goto pilreadg4z;
                      }
                   ulBitOff += 10;
@@ -842,7 +734,7 @@ uint8_t *pBuf;
             whtst:
                   if (/*iCur >= xsize || */pBuf > pBufEnd)    /* Something is wrong, stop */
                      {
-                     pPage->iError = PIL_ERROR_DECOMP;
+                     pPage->iError = OBGFX_DECODE_ERROR;
                      goto pilreadg4z;
                      }
                   tot_run1++;
@@ -877,7 +769,7 @@ uint8_t *pBuf;
                         {
                         pBuf += (ulBitOff >> 3);
                         ulBitOff &= 7;
-                        ulBits = GETMAXMOTOBITS(pBuf);
+                        ulBits = MOTOLONG(pBuf);
                         }
                      lBits = ulBits << ulBitOff;
                      lBits >>= (REGISTER_WIDTH - 1); /* Turn it into 0/1 for color */
@@ -900,7 +792,7 @@ uint8_t *pBuf;
             blkst:
                   if (/*iCur >= xsize || */ pBuf > pBufEnd)    /* Something is wrong, stop */
                      {
-                     pPage->iError = PIL_ERROR_DECOMP;
+                     pPage->iError = OBGFX_DECODE_ERROR;
                      goto pilreadg4z;
                      }
                   tot_run++;
@@ -924,14 +816,14 @@ uint8_t *pBuf;
 //                  sCode = ClimbWhite(&bb);
                   if (sCode != EOL)
                      {
-                     pPage->iError = PIL_ERROR_DECOMP;
+                     pPage->iError = OBGFX_DECODE_ERROR;
                      goto pilreadg4z;
                      }
                    CLIMBWHITE_NEW(pBuf, ulBitOff, ulBits, sCode)
 //                  sCode = ClimbWhite(&bb);
                   if (sCode != EOL)
                      {
-                     pPage->iError = PIL_ERROR_DECOMP;
+                     pPage->iError = OBGFX_DECODE_ERROR;
                      goto pilreadg4z;
                      }
                   goto pilreadg4z; /* Leave gracefully */
@@ -942,10 +834,9 @@ uint8_t *pBuf;
   g4eol:
       *pCur++ = xsize;  /* Terminate the line properly */
       *pCur++ = xsize;
-      *pCur++ = xsize;
 
         // Draw the current line
-      TIFFDrawLine(pPage, y, CurFlips);
+      OBGFXDrawLine(pPage, y, CurFlips);
       /*--- Swap current and reference lines ---*/
       t1 = RefFlips;
       RefFlips = CurFlips;
@@ -953,8 +844,8 @@ uint8_t *pBuf;
       } /* for */
   pilreadg4z:
 //    pOutPage->iLinesDecoded = y; // tell caller how many lines successfully decoded
-   if (pPage->iOptions & PIL_CONVERT_IGNORE_ERRORS)
-      pPage->iError = 0; // suppress errors
+//   if (pPage->iOptions & PIL_CONVERT_IGNORE_ERRORS)
+//      pPage->iError = 0; // suppress errors
 
    return (pPage->iError == 0);
 

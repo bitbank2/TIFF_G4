@@ -21,12 +21,19 @@
 //
 
 /* Defines and variables */
-#define FILE_HIGHWATER 1536
-#define FILE_BUF_SIZE 2048
 #define MAX_BUFFERED_PIXELS 2048
-#define MAX_IMAGE_WIDTH 2550
+#ifdef __AVR__
+#define MAX_IMAGE_WIDTH 128
+#define FILE_BUF_SIZE 256
+#else
+#define FILE_BUF_SIZE 2048
+#define MAX_IMAGE_WIDTH 2600
+#endif
+#define FILE_HIGHWATER ((FILE_BUF_SIZE * 3) >> 2)
 #define TIFF_TAG_SIZE 12
 #define MAX_TIFF_TAGS 128
+#define BITDIR_MSB_FIRST     1
+#define BITDIR_LSB_FIRST     2
 
 // Error codes returned by getLastError()
 enum {
@@ -37,56 +44,51 @@ enum {
     OBGFX_INVALID_FILE
 };
 
-typedef struct buffered_bits
-{
-unsigned char *pBuf; // buffer pointer
-uint32_t ulBits; // buffered bits
-uint32_t ulBitOff; // current bit offset
-} BUFFERED_BITS;
-
-typedef struct tiff_file_tag
+typedef struct obgfx_file_tag
 {
   int32_t iPos; // current file position
   int32_t iSize; // file size
   uint8_t *pData; // memory file pointer
   void * fHandle; // class pointer to File/SdFat or whatever you want
-} TIFFFILE;
+} OBGFXFILE;
 
-typedef struct tiff_draw_tag
+typedef struct obgfx_draw_tag
 {
     int x, y; // upper left corner of current MCU
     int iWidth, iHeight; // size of this MCU
     int iBpp; // bit depth of the pixels (8 or 16)
     uint16_t *pPixels; // 16-bit pixels
-} TIFFDRAW;
+} OBGFXDRAW;
 
 // Callback function prototypes
-typedef int32_t (TIFF_READ_CALLBACK)(TIFFFILE *pFile, uint8_t *pBuf, int32_t iLen);
-typedef int32_t (TIFF_SEEK_CALLBACK)(TIFFFILE *pFile, int32_t iPosition);
-typedef void (TIFF_DRAW_CALLBACK)(TIFFDRAW *pDraw);
-typedef void * (TIFF_OPEN_CALLBACK)(char *szFilename, int32_t *pFileSize);
-typedef void (TIFF_CLOSE_CALLBACK)(void *pHandle);
+typedef int32_t (OBGFX_READ_CALLBACK)(OBGFXFILE *pFile, uint8_t *pBuf, int32_t iLen);
+typedef int32_t (OBGFX_SEEK_CALLBACK)(OBGFXFILE *pFile, int32_t iPosition);
+typedef void (OBGFX_DRAW_CALLBACK)(OBGFXDRAW *pDraw);
+typedef void * (OBGFX_OPEN_CALLBACK)(char *szFilename, int32_t *pFileSize);
+typedef void (OBGFX_CLOSE_CALLBACK)(void *pHandle);
 
 //
 // our private structure to hold a TIFF image decode state
 //
-typedef struct tiff_image_tag
+typedef struct obgfx_image_tag
 {
     int iWidth, iHeight; // image size
     int iXOffset, iYOffset; // placement on the display
     int iError;
     int iOptions;
-    TIFF_READ_CALLBACK *pfnRead;
-    TIFF_SEEK_CALLBACK *pfnSeek;
-    TIFF_DRAW_CALLBACK *pfnDraw;
-    TIFF_OPEN_CALLBACK *pfnOpen;
-    TIFF_CLOSE_CALLBACK *pfnClose;
-    TIFFFILE TIFFFile;
-    BUFFERED_BITS bb;
+    int iVLCOff, iVLCSize;
+    int iStripSize, iStripOffset;
+    uint8_t ucCompression, ucPhotometric, ucFillOrder;
+    OBGFX_READ_CALLBACK *pfnRead;
+    OBGFX_SEEK_CALLBACK *pfnSeek;
+    OBGFX_DRAW_CALLBACK *pfnDraw;
+    OBGFX_OPEN_CALLBACK *pfnOpen;
+    OBGFX_CLOSE_CALLBACK *pfnClose;
+    OBGFXFILE OBGFXFile;
     int16_t CurFlips[MAX_IMAGE_WIDTH];
     int16_t RefFlips[MAX_IMAGE_WIDTH];
     uint8_t ucFileBuf[FILE_BUF_SIZE]; // holds temp data and pixel stack
-} TIFFIMAGE;
+} OBGFXIMAGE;
 
 //
 // The ONEBITGFX class wraps portable C code which does the actual work
@@ -94,8 +96,9 @@ typedef struct tiff_image_tag
 class ONEBITGFX
 {
   public:
-    int open(uint8_t *pData, int iDataSize, TIFF_DRAW_CALLBACK *pfnDraw);
-    int open(char *szFilename, TIFF_OPEN_CALLBACK *pfnOpen, TIFF_CLOSE_CALLBACK *pfnClose, TIFF_READ_CALLBACK *pfnRead, TIFF_SEEK_CALLBACK *pfnSeek, TIFF_DRAW_CALLBACK *pfnDraw);
+    int openTIFF(uint8_t *pData, int iDataSize, OBGFX_DRAW_CALLBACK *pfnDraw);
+    int openTIFF(char *szFilename, OBGFX_OPEN_CALLBACK *pfnOpen, OBGFX_CLOSE_CALLBACK *pfnClose, OBGFX_READ_CALLBACK *pfnRead, OBGFX_SEEK_CALLBACK *pfnSeek, OBGFX_DRAW_CALLBACK *pfnDraw);
+    int openRAW(int iWidth, int iHeight, int iFillOrder, uint8_t *pData, int iDataSize, OBGFX_DRAW_CALLBACK *pfnDraw);
     void close();
     int decode(int x, int y, int iOptions);
     int getWidth();
@@ -103,7 +106,7 @@ class ONEBITGFX
     int getLastError();
 
   private:
-    TIFFIMAGE _tiff;
+    OBGFXIMAGE _obgfx;
 };
 
 // Due to unaligned memory causing an exception, we have to do these macros the slow way
