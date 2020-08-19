@@ -25,10 +25,39 @@
 static int OBGFXInit(OBGFXIMAGE *pTIFF);
 static int OBGFXParseInfo(OBGFXIMAGE *pPage);
 static void OBGFXGetMoreData(OBGFXIMAGE *pPage);
-static int Decode(OBGFXIMAGE *pImage);
+static int Decode(OBGFXIMAGE *pImage, OBGFXWINDOW *pWin);
 
+// Scale to gray table
+//
+// Top 4 bits = top line, bottom 4 bits = bottom line
+// This 4x2 block gets translated into a 2x1 block of 2-bpp pixels
+// There are really 5 gray levels that we have to fit in 2 bits
+// so the compromise is to merge levels 2 and 3
+// 2x2 black pixel count vs gray level
+// 0 -> 0
+// 1 -> 1
+// 2 -> 2
+// 3 -> 2
+// 4 -> 3
+const uint8_t ucGrays[256] PROGMEM =
+{   0x00,0x01,0x01,0x02,0x01,0x02,0x02,0x02,0x01,0x02,0x02,0x02,0x02,0x02,0x02,0x03,
+    0x04,0x05,0x05,0x06,0x05,0x06,0x06,0x06,0x05,0x06,0x06,0x06,0x06,0x06,0x06,0x07,
+    0x04,0x05,0x05,0x06,0x05,0x06,0x06,0x06,0x05,0x06,0x06,0x06,0x06,0x06,0x06,0x07,
+    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
+    0x04,0x05,0x05,0x06,0x05,0x06,0x06,0x06,0x05,0x06,0x06,0x06,0x06,0x06,0x06,0x07,
+    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
+    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
+    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
+    0x04,0x05,0x05,0x06,0x05,0x06,0x06,0x06,0x05,0x06,0x06,0x06,0x06,0x06,0x06,0x07,
+    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
+    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
+    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
+    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
+    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
+    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
+    0x0c,0x0d,0x0d,0x0e,0x0d,0x0e,0x0e,0x0e,0x0d,0x0e,0x0e,0x0e,0x0e,0x0e,0x0e,0x0f};
 /* Table of byte flip values to mirror-image incoming CCITT data */
-static const uint8_t ucMirror[256]=
+static const uint8_t ucMirror[256] PROGMEM =
      {0, 128, 64, 192, 32, 160, 96, 224, 16, 144, 80, 208, 48, 176, 112, 240,
       8, 136, 72, 200, 40, 168, 104, 232, 24, 152, 88, 216, 56, 184, 120, 248,
       4, 132, 68, 196, 36, 164, 100, 228, 20, 148, 84, 212, 52, 180, 116, 244,
@@ -53,7 +82,7 @@ static const uint8_t ucMirror[256]=
  02 = vertneg2, 13h = vert3, 03 = vertneg3, 90h = trash
 */
 
-static const uint8_t code_table[128] =
+static const uint8_t code_table[128] PROGMEM =
         {0x90, 0, 0x40, 0,       /* trash, uncompr mode - codes 0 and 1 */
          3, 7,                   /* V(-3) pos = 2 */
          0x13, 7,                /* V(3)  pos = 3 */
@@ -79,7 +108,7 @@ static const uint8_t code_table[128] =
  Here are the Huffman address codes for run lengths
  first the short white codes (first 4 bits != 0)
 */
-static const int16_t white_s[1024] =
+static const int16_t white_s[1024] PROGMEM =
         {-1,-1,-1,-1,-1,-1,-1,-1,8,29,8,29,8,30,8,30,
         8,45,8,45,8,46,8,46,7,22,7,22,7,22,7,22,
         7,23,7,23,7,23,7,23,8,47,8,47,8,48,8,48,
@@ -144,10 +173,9 @@ static const int16_t white_s[1024] =
         4,7,4,7,4,7,4,7,4,7,4,7,4,7,4,7,
         4,7,4,7,4,7,4,7,4,7,4,7,4,7,4,7,
         4,7,4,7,4,7,4,7,4,7,4,7,4,7,4,7};
-uint32_t *pWhite_S_32 = (uint32_t *) &white_s[0];
 
 /* the short black codes (first 4 bits != 0) */
-static const int16_t black_s[128] =
+static const int16_t black_s[128] PROGMEM =
        {-1,-1,-1,-1,-1,-1,-1,-1,6,9,6,8,5,7,5,7,
         4,6,4,6,4,6,4,6,4,5,4,5,4,5,4,5,
         3,1,3,1,3,1,3,1,3,1,3,1,3,1,3,1,
@@ -156,12 +184,11 @@ static const int16_t black_s[128] =
         2,3,2,3,2,3,2,3,2,3,2,3,2,3,2,3,
         2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
         2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2};
-uint32_t *pBlack_S_32 = (uint32_t *)&black_s[0];
 
 /* The long black codes (first 4 bits == 0) */
 #define EOL -9999   /* End of line */
 #define EO1D -9998  /* End of 1D coding */
-static const int16_t black_l[1024] =
+static const int16_t black_l[1024] PROGMEM =
     {1,0,1,0,12,EOL,12,EOL,1,-1,1,-1,1,-1,1,-1,
      1,-1,1,-1,1,-1,1,-1,1,-1,1,-1,1,-1,1,-1,
      1,-1,1,-1,1,-1,1,-1,1,-1,1,-1,12,EO1D,12,EO1D,
@@ -226,8 +253,6 @@ static const int16_t black_l[1024] =
      7,12,7,12,7,12,7,12,7,12,7,12,7,12,7,12,
      7,12,7,12,7,12,7,12,7,12,7,12,7,12,7,12,
      7,12,7,12,7,12,7,12,7,12,7,12,7,12,7,12};
-uint32_t *pBlack_L_32 = (uint32_t *)&black_l[0];
-
 //
 // Helper functions for memory based images
 //
@@ -255,6 +280,7 @@ static int32_t seekMem(OBGFXFILE *pFile, int32_t iPosition)
 
 //
 // Memory initialization
+// Open a TIFF file and parse the header
 //
 int ONEBITGFX::openTIFF(uint8_t *pData, int iDataSize, OBGFX_DRAW_CALLBACK *pfnDraw)
 {
@@ -268,8 +294,10 @@ int ONEBITGFX::openTIFF(uint8_t *pData, int iDataSize, OBGFX_DRAW_CALLBACK *pfnD
     _obgfx.OBGFXFile.pData = pData;
     return OBGFXInit(&_obgfx);
 } /* openTIFF() */
-
+//
 // Work with 'headerless' compressed G4 data
+// Pass the width, height and fill order
+//
 int ONEBITGFX::openRAW(int iWidth, int iHeight, int iFillOrder, uint8_t *pData, int iDataSize, OBGFX_DRAW_CALLBACK *pfnDraw)
 {
     memset(&_obgfx, 0, sizeof(OBGFXIMAGE));
@@ -331,12 +359,9 @@ void ONEBITGFX::close()
 // 1 = good result
 // 0 = error
 //
-int ONEBITGFX::decode(int x, int y, int iOptions)
+int ONEBITGFX::decode(OBGFXWINDOW *pWin)
 {
-    _obgfx.iXOffset = x;
-    _obgfx.iYOffset = y;
-    _obgfx.iOptions = iOptions;
-    return Decode(&_obgfx);
+    return Decode(&_obgfx, pWin);
 } /* decode() */
 //
 // The following functions are written in plain C and have no
@@ -429,7 +454,7 @@ static int OBGFXParseInfo(OBGFXIMAGE *pPage)
     uint8_t bMotorola, *s = pPage->ucFileBuf;
     uint16_t usTagCount;
     int iStripCount, IFD, iTag, iBpp = 1, iSamples = 1;
-    int iT6Options = 0;
+//    int iT6Options = 0;
 
     pPage->ucFillOrder = BITDIR_MSB_FIRST; // default to MSB first
     iBytesRead = (*pPage->pfnRead)(&pPage->OBGFXFile, s, 8);
@@ -506,9 +531,9 @@ static int OBGFXParseInfo(OBGFXIMAGE *pPage)
             case 279: // strip size
                 pPage->iStripSize = TIFFVALUE(s, bMotorola);
                 break;
-            case 293: // T6 option flags
-                iT6Options = TIFFVALUE(s, bMotorola);
-                break;
+//            case 293: // T6 option flags
+//                iT6Options = TIFFVALUE(s, bMotorola);
+//                break;
         } // while
         s += TIFF_TAG_SIZE;
     }
@@ -521,7 +546,7 @@ static int OBGFXParseInfo(OBGFXIMAGE *pPage)
 } /* OBGFXParseInfo() */
 
 //
-// Read and filter more VLC data for decoding
+// Read (and optionally bit flip) more VLC data for decoding
 //
 static void OBGFXGetMoreData(OBGFXIMAGE *pPage)
 {
@@ -544,20 +569,174 @@ static void OBGFXGetMoreData(OBGFXIMAGE *pPage)
         if (pPage->ucFillOrder == BITDIR_LSB_FIRST)
         {
             for (i=0; i<iBytesRead; i++)
-                pPage->ucFileBuf[i+pPage->iVLCSize] = ucMirror[pPage->ucFileBuf[i+pPage->iVLCSize]];
+            {
+                uint8_t c = pPage->ucFileBuf[i+pPage->iVLCSize];
+                pPage->ucFileBuf[i+pPage->iVLCSize] = pgm_read_byte(&ucMirror[c]);
+            }
         }
         pPage->iVLCSize += iBytesRead;
     }
 } /* JPEGGetMoreData() */
-
-static void OBGFXDrawLine(OBGFXIMAGE *pPage, int y, int16_t *CurFlips)
+//
+// Width is the doubled pixel width
+//
+static void Scale2Gray(uint8_t *source, int width, int iPitch)
 {
+    int x;
+    uint8_t ucPixels, c, d, *dest;
     
-} /* TIFFDrawLine() */
+    dest = source; // write the new pixels over the old to save memory
+    
+    for (x=0; x<width/8; x+=2) /* Convert a pair of lines to gray */
+    {
+        c = source[x];  // first 4x2 block
+        d = source[x+iPitch];
+        /* two lines of 8 pixels are converted to one line of 4 pixels */
+        ucPixels = ucGrays[(unsigned char)((c & 0xf0) | (d >> 4))]; // first pair
+        ucPixels |= (ucGrays[(unsigned char)((c << 4) | (d & 0x0f))])<<2; // second pair
+        c = source[x+1];  // next 4x2 block
+        d = source[x+iPitch+1];
+        ucPixels |= (ucGrays[(unsigned char)((c & 0xf0) | (d >> 4))])<<4; // third pair
+        ucPixels |= (ucGrays[(unsigned char)((c << 4) | (d & 0x0f))])<<6; // fourth pair
+        *dest++ = ucPixels;
+    }
+    if (width & 4) // 2 more pixels to do
+    {
+        c = source[x];
+        d = source[x + iPitch];
+        ucPixels = ucGrays[(unsigned char) ((c & 0xf0) | (d >> 4))];
+        ucPixels |= (ucGrays[(unsigned char) ((c << 4) | (d & 0x0f))] << 2);
+        dest[0] = ucPixels;
+    }
+} /* Scale2Gray() */
 
-static int Decode(OBGFXIMAGE *pPage)
+static void OBGFXDrawLine(OBGFXIMAGE *pPage, OBGFXWINDOW *pWin, int y, int16_t *pCurFlips)
 {
-int i, y, xsize, tot_run, tot_run1;
+    int x, len, run, sx, srun;
+    uint8_t lBit, rBit, *p;
+    int iStart = 0, xright = pPage->iWidth;
+    uint32_t u32ScaleFactor;
+    uint8_t *pDest;
+    OBGFXDRAW obgd;
+    
+    if (pWin == NULL)
+        u32ScaleFactor = 0x10000; // default to 1:1 for now
+    else
+    {
+        u32ScaleFactor = pWin->iScale;
+        iStart = pWin->x;
+    }
+    if ((pWin && y < pWin->y) || (y & 1 && u32ScaleFactor < 0x4000))
+        return; // no need to draw anything, if shrinking too tiny, skip every line
+    
+    if (y == 0 || (pWin && y == pWin->y)) // start first line at white
+    {
+        pPage->u32Accum = 0;
+        pPage->iPitch = pPage->iWidth>>3;
+        if (pWin && pWin->ucPixelType >= OBGFX_PIXEL_2BPP)
+        {
+            pPage->iPitch *= 2; // scale-to-gray is 4x as much memory
+            if (pPage->iPitch*2 < MAX_BUFFERED_PIXELS)
+                memset(pPage->ucPixels, 0xff, pPage->iPitch*2); // start as 0xff (white)
+        }
+        else
+        {
+            if (pPage->iPitch < MAX_BUFFERED_PIXELS)
+                memset(pPage->ucPixels, 0xff, pPage->iPitch); // start as 0xff (white)
+        }
+    }
+       pDest = pPage->ucPixels;
+       if (pWin && pWin->ucPixelType >= OBGFX_PIXEL_2BPP)
+       {
+           u32ScaleFactor <<= 1; // double the scale
+           if ((pPage->u32Accum >> 16) >= 1) // second line
+               pDest = &pPage->ucPixels[pPage->iPitch];
+       }
+       x = - iStart; /* Get the starting offset as negative */
+       while (x < xright)
+        {
+            x = *pCurFlips++; // black starting point
+            run = *pCurFlips++ - x; // get the black run
+          if (x >= xright || run == 0)
+             break;
+          if ((x + run) > 0) /* If the run is visible, draw it */
+             {
+             if (x < 0)
+                {
+                run += x; /* draw only visible part of run */
+                x = 0;
+                }
+             if ((x + run) > xright) /* Don't let it go off right edge */
+                run = xright - x;
+          /* Scale the starting x and run down to size */
+             sx = (x * u32ScaleFactor)>>16;
+             srun = (run * u32ScaleFactor)>>16;
+    //         srun -= sx;
+             if (srun < 1) /* Always draw at least one pixel */
+                srun = 1;
+             /* Draw this run */
+             lBit = 0xff << (8 - (sx & 7));
+             rBit = 0xff >> ((sx + srun) & 7);
+             len = ((sx+srun)>>3) - (sx >> 3);
+             p = &pDest[sx >> 3];
+             if (len == 0)
+                {
+                lBit |= rBit;
+                *p &= lBit;
+                }
+             else
+                {
+                *p++ &= lBit;
+                while (len > 1)
+                   {
+                   *p++ = 0;
+                   len--;
+                   }
+                *p = rBit;
+                }
+             }
+          } /* while drawing line */
+    pPage->u32Accum += u32ScaleFactor;
+    if (y == pPage->iHeight-1) // last line, force a final draw
+        pPage->u32Accum = 0x20000;
+    if (pWin && pWin->ucPixelType >= OBGFX_PIXEL_2BPP && (pPage->u32Accum >> 16) >= 2)
+    {
+        // Time to output the two lines as scale-to-gray
+        // Convert the stretched pixels to 2-bit grayscale
+        Scale2Gray(pPage->ucPixels, pPage->iWidth*2, pPage->iPitch);
+        obgd.iWidth = pPage->iWidth;
+        obgd.iHeight = pPage->iHeight;
+        obgd.pPixels = pPage->ucPixels;
+        obgd.y = ((y - pWin->y) * u32ScaleFactor) >> 15; // scaled and centered
+        (*pPage->pfnDraw)(&obgd); // callback
+        pPage->u32Accum &= 0xffff; // reset local Y offset
+        if (pPage->iPitch*2 < MAX_BUFFERED_PIXELS)
+            memset(pPage->ucPixels, 0xff, pPage->iPitch*2); // start as 0xff (white)
+    }
+    else if ((pPage->u32Accum >> 16) >= 1) // time to output the 1 line
+    {
+        obgd.iHeight = pPage->iHeight;
+        obgd.pPixels = pPage->ucPixels;
+        if (pWin)
+        {
+            obgd.y = ((y - pWin->y) * pWin->iScale) >> 16; // scaled and centered
+            obgd.iWidth = (pPage->iWidth * pWin->iScale) >> 16;
+        }
+        else
+            obgd.y = y;
+        (*pPage->pfnDraw)(&obgd); // callback
+        pPage->u32Accum &= 0xffff;
+        if (pPage->iPitch < MAX_BUFFERED_PIXELS)
+            memset(pPage->ucPixels, 0xff, pPage->iPitch); // start as 0xff (white)
+    }
+    
+} /* OBGFXDrawLine() */
+//
+// Decompress the VLC data
+//
+static int Decode(OBGFXIMAGE *pPage, OBGFXWINDOW *pWin)
+{
+int i, y, xsize, tot_run, tot_run1 = 0;
 int32_t sCode;
 int16_t *t1, *pCur, *pRef;
 int16_t *CurFlips, *RefFlips;
@@ -630,8 +809,8 @@ uint8_t *pBuf, *pBufEnd;
          else /* Slow method */
             {
             lBits = (ulBits >> ((REGISTER_WIDTH - 8) - ulBitOff)) & 0xfe; /* Only the first 7 bits are useful */
-            sCode = code_table[lBits]; /* Get the code word */
-            ulBitOff += code_table[lBits+1]; /* Get the code length */
+            sCode = pgm_read_byte(&code_table[lBits]); /* Get the code word */
+            ulBitOff += pgm_read_byte(&code_table[lBits+1]); /* Get the code length */
             switch (sCode)
                {
                case 1: /* V(-1) */
@@ -831,12 +1010,11 @@ uint8_t *pBuf, *pBufEnd;
             } /* Slow climb */
          }
       /*--- Convert flips data into run lengths ---*/
-  g4eol:
       *pCur++ = xsize;  /* Terminate the line properly */
       *pCur++ = xsize;
 
         // Draw the current line
-      OBGFXDrawLine(pPage, y, CurFlips);
+      OBGFXDrawLine(pPage, pWin, y, CurFlips);
       /*--- Swap current and reference lines ---*/
       t1 = RefFlips;
       RefFlips = CurFlips;
