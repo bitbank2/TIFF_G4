@@ -48,7 +48,7 @@ enum {
 enum {
     OBGFX_PIXEL_1BPP = 0,
     OBGFX_PIXEL_2BPP,
-    OBGFX_PIXEL_8BPP
+    OBGFX_PIXEL_4BPP
 };
 
 typedef struct obgfx_file_tag
@@ -67,6 +67,7 @@ typedef struct obgfx_window_tag
     int x, y; // upper left corner of interest (source pixels)
     uint32_t iScale; // 16:16 fixed scale factor (e.g. 0.5 = 0x8000)
     int iWidth; // width of destination window (for clipping purposes)
+    uint8_t *p4BPP; // user-supplied buffer for 4-bpp grayscale output
     uint8_t ucPixelType;
 } OBGFXWINDOW;
 
