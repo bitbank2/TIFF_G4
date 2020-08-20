@@ -678,13 +678,17 @@ static void OBGFXDrawLine(OBGFXIMAGE *pPage, OBGFXWINDOW *pWin, int y, int16_t *
         u32ScaleFactor = pWin->iScale;
         iStart = pWin->x;
     }
+    pPage->u32Accum += u32ScaleFactor;
     if ((pWin && y < pWin->y) || (y & 1 && u32ScaleFactor < 0x4000))
         return; // no need to draw anything, if shrinking too tiny, skip every line
     
     if (y == 0 || (pWin && y == pWin->y)) // start first line at white
     {
         pPage->u32Accum = 0;
+        pPage->y = 0; // old Y value
         pPage->iPitch = pPage->iWidth>>3;
+        if (pWin && pWin->iScale != 0 && pWin->iScale != 0x10000)
+            pPage->iPitch = ((pPage->iWidth * pWin->iScale) >> 16);
         if (pWin && pWin->ucPixelType >= OBGFX_PIXEL_2BPP)
         {
             pPage->iPitch *= 2; // scale-to-gray is 4x as much memory
@@ -748,37 +752,44 @@ static void OBGFXDrawLine(OBGFXIMAGE *pPage, OBGFXWINDOW *pWin, int y, int16_t *
                 }
              }
           } /* while drawing line */
-    pPage->u32Accum += u32ScaleFactor;
+    obgd.ucLast = 0;
     if (y == pPage->iHeight-1) // last line, force a final draw
-        pPage->u32Accum = 0x20000;
-    if (pWin && pWin->ucPixelType >= OBGFX_PIXEL_2BPP && (pPage->u32Accum >> 16) >= 2)
     {
-        // Time to output the two lines as scale-to-gray
-        // Convert the stretched pixels to 2-bit grayscale
-        if (pWin->ucPixelType == OBGFX_PIXEL_2BPP)
-            Scale2Gray(pPage->ucPixels, pPage->iWidth*2, pPage->iPitch);
-        else
-            Scale2Gray4BPP(pPage->ucPixels, pWin->p4BPP, pPage->iWidth*2, pPage->iPitch);
-        obgd.iWidth = pPage->iWidth;
-        obgd.iHeight = pPage->iHeight;
-        obgd.pPixels = pPage->ucPixels;
-        obgd.y = ((y - pWin->y) * u32ScaleFactor) >> 15; // scaled and centered
-        (*pPage->pfnDraw)(&obgd); // callback
-        pPage->u32Accum &= 0xffff; // reset local Y offset
-        if (pPage->iPitch*2 < MAX_BUFFERED_PIXELS)
-            memset(pPage->ucPixels, 0xff, pPage->iPitch*2); // start as 0xff (white)
+        pPage->u32Accum = 0x20000;
+        obgd.ucLast = 1;
+    }
+    obgd.ucPixelType = (pWin) ? pWin->ucPixelType : OBGFX_PIXEL_1BPP; // default output
+    if (obgd.ucPixelType >= OBGFX_PIXEL_2BPP)
+    {
+        if ((pPage->u32Accum >> 16) >= 2)
+        {
+            // Time to output the two lines as scale-to-gray
+            // Convert the stretched pixels to 2-bit grayscale
+            if (pWin->ucPixelType == OBGFX_PIXEL_2BPP)
+                Scale2Gray(pPage->ucPixels, pPage->iWidth*2, pPage->iPitch);
+            else
+                Scale2Gray4BPP(pPage->ucPixels, pWin->p4BPP, pPage->iWidth*2, pPage->iPitch);
+            obgd.iWidth = pPage->iWidth;
+            obgd.iHeight = pPage->iHeight;
+            obgd.pPixels = pPage->ucPixels;
+            obgd.y = ((y - pWin->y) * u32ScaleFactor) >> 15; // scaled and centered
+            (*pPage->pfnDraw)(&obgd); // callback
+            pPage->u32Accum &= 0xffff; // reset local Y offset
+            if (pPage->iPitch*2 < MAX_BUFFERED_PIXELS)
+                memset(pPage->ucPixels, 0xff, pPage->iPitch*2); // start as 0xff (white)
+        }
     }
     else if ((pPage->u32Accum >> 16) >= 1) // time to output the 1 line
     {
         obgd.iHeight = pPage->iHeight;
+        obgd.iWidth = (pPage->iWidth * u32ScaleFactor) >> 16;
         obgd.pPixels = pPage->ucPixels;
         if (pWin)
         {
-            obgd.y = ((y - pWin->y) * pWin->iScale) >> 16; // scaled and centered
-            obgd.iWidth = (pPage->iWidth * pWin->iScale) >> 16;
+            obgd.y = ((y - pWin->y - 1) * u32ScaleFactor) >> 16; // scaled and centered
         }
         else
-            obgd.y = y;
+            obgd.y = ((y - 1)* u32ScaleFactor) >> 16;
         (*pPage->pfnDraw)(&obgd); // callback
         pPage->u32Accum &= 0xffff;
         if (pPage->iPitch < MAX_BUFFERED_PIXELS)

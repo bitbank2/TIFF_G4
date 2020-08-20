@@ -37,11 +37,14 @@ int main(int argc, const char * argv[]) {
 //    }
 //    return 0;
     
+    printf("Size of ONEBITGFX struct = %d\n", (int)sizeof(obg));
+    
     if(obg.openTIFF((uint8_t *)notes, sizeof(notes), OBGDraw))
     {
         memset(&obgw, 0, sizeof(obgw));
-        obgw.iScale = 0x8000;
+        obgw.iScale = 0x2000;
         obgw.iWidth = 400;
+        obgw.ucPixelType = OBGFX_PIXEL_1BPP;
         printf("image size = %d x %d\n", obg.getWidth(), obg.getHeight());
         if (obg.decode(&obgw))
         {

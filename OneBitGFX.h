@@ -76,6 +76,7 @@ typedef struct obgfx_draw_tag
     int y; // current ;ome
     int iWidth, iHeight; // size of entire image in pixels
     uint8_t *pPixels; // 1 or 2-bit pixels
+    uint8_t ucPixelType, ucLast;
 } OBGFXDRAW;
 
 // Callback function prototypes
@@ -92,6 +93,7 @@ typedef struct obgfx_image_tag
 {
     int iWidth, iHeight; // image size
     int iError;
+    int y; // last y value drawn
     int iVLCOff, iVLCSize;
     int iStripSize, iStripOffset;
     int iPitch; // width in bytes of output buffer
