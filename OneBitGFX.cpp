@@ -686,7 +686,7 @@ static void OBGFXDrawLine(OBGFXIMAGE *pPage, OBGFXWINDOW *pWin, int y, int16_t *
     {
         pPage->u32Accum = 0;
         pPage->y = 0; // old Y value
-        pPage->iPitch = pPage->iWidth>>3;
+        pPage->iPitch = (pPage->iWidth+7)>>3;
         if (pWin && pWin->iScale != 0 && pWin->iScale != 0x10000)
             pPage->iPitch = ((pPage->iWidth * pWin->iScale) >> 16);
         if (pWin && pWin->ucPixelType >= OBGFX_PIXEL_2BPP)
@@ -781,16 +781,23 @@ static void OBGFXDrawLine(OBGFXIMAGE *pPage, OBGFXWINDOW *pWin, int y, int16_t *
     }
     else if ((pPage->u32Accum >> 16) >= 1) // time to output the 1 line
     {
+        int iNewY;
         obgd.iHeight = pPage->iHeight;
         obgd.iWidth = (pPage->iWidth * u32ScaleFactor) >> 16;
         obgd.pPixels = pPage->ucPixels;
         if (pWin)
         {
-            obgd.y = ((y - pWin->y - 1) * u32ScaleFactor) >> 16; // scaled and centered
+            iNewY = ((y - pWin->y - 1) * u32ScaleFactor) >> 16; // scaled and centered
         }
         else
-            obgd.y = ((y - 1)* u32ScaleFactor) >> 16;
-        (*pPage->pfnDraw)(&obgd); // callback
+            iNewY = ((y - 1)* u32ScaleFactor) >> 16;
+        // When stretching the image, we may need to repeat lines
+        while (iNewY > pPage->y)
+        {
+            obgd.y = pPage->y;
+            (*pPage->pfnDraw)(&obgd); // callback
+            pPage->y++;
+        }
         pPage->u32Accum &= 0xffff;
         if (pPage->iPitch < MAX_BUFFERED_PIXELS)
             memset(pPage->ucPixels, 0xff, pPage->iPitch); // start as 0xff (white)
