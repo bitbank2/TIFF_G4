@@ -25,7 +25,7 @@
 static int OBGFXInit(OBGFXIMAGE *pTIFF);
 static int OBGFXParseInfo(OBGFXIMAGE *pPage);
 static void OBGFXGetMoreData(OBGFXIMAGE *pPage);
-static int Decode(OBGFXIMAGE *pImage, OBGFXWINDOW *pWin);
+static int Decode(OBGFXIMAGE *pImage);
 
 // Scale to gray tables
 //
@@ -40,22 +40,22 @@ static int Decode(OBGFXIMAGE *pImage, OBGFXWINDOW *pWin);
 // 3 -> 2
 // 4 -> 3
 const uint8_t ucGray2BPP[256] PROGMEM =
-{   0x00,0x01,0x01,0x02,0x01,0x02,0x02,0x02,0x01,0x02,0x02,0x02,0x02,0x02,0x02,0x03,
-    0x04,0x05,0x05,0x06,0x05,0x06,0x06,0x06,0x05,0x06,0x06,0x06,0x06,0x06,0x06,0x07,
-    0x04,0x05,0x05,0x06,0x05,0x06,0x06,0x06,0x05,0x06,0x06,0x06,0x06,0x06,0x06,0x07,
-    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
-    0x04,0x05,0x05,0x06,0x05,0x06,0x06,0x06,0x05,0x06,0x06,0x06,0x06,0x06,0x06,0x07,
-    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
-    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
-    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
-    0x04,0x05,0x05,0x06,0x05,0x06,0x06,0x06,0x05,0x06,0x06,0x06,0x06,0x06,0x06,0x07,
-    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
-    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
-    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
-    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
-    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
-    0x08,0x09,0x09,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0a,0x0a,0x0a,0x0b,
-    0x0c,0x0d,0x0d,0x0e,0x0d,0x0e,0x0e,0x0e,0x0d,0x0e,0x0e,0x0e,0x0e,0x0e,0x0e,0x0f};
+{   0x00,0x01,0x01,0x02,0x04,0x05,0x05,0x06,0x04,0x05,0x05,0x06,0x08,0x09,0x09,0x0a,
+0x01,0x02,0x02,0x02,0x05,0x06,0x06,0x06,0x05,0x06,0x06,0x06,0x09,0x0a,0x0a,0x0a,
+0x01,0x02,0x02,0x02,0x05,0x06,0x06,0x06,0x05,0x06,0x06,0x06,0x09,0x0a,0x0a,0x0a,
+0x02,0x02,0x02,0x03,0x06,0x06,0x06,0x07,0x06,0x06,0x06,0x07,0x0a,0x0a,0x0a,0x0b,
+0x04,0x05,0x05,0x06,0x08,0x09,0x09,0x0a,0x08,0x09,0x09,0x0a,0x08,0x09,0x09,0x0a,
+0x05,0x06,0x06,0x06,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,
+0x05,0x06,0x06,0x06,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,
+0x06,0x06,0x06,0x07,0x0a,0x0a,0x0a,0x0b,0x0a,0x0a,0x0a,0x0b,0x0a,0x0a,0x0a,0x0b,
+0x04,0x05,0x05,0x06,0x08,0x09,0x09,0x0a,0x08,0x09,0x09,0x0a,0x08,0x09,0x09,0x0a,
+0x05,0x06,0x06,0x06,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,
+0x05,0x06,0x06,0x06,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,
+0x06,0x06,0x06,0x07,0x0a,0x0a,0x0a,0x0b,0x0a,0x0a,0x0a,0x0b,0x0a,0x0a,0x0a,0x0b,
+0x08,0x09,0x09,0x0a,0x08,0x09,0x09,0x0a,0x08,0x09,0x09,0x0a,0x0c,0x0d,0x0d,0x0e,
+0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0d,0x0e,0x0e,0x0e,
+0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x09,0x0a,0x0a,0x0a,0x0d,0x0e,0x0e,0x0e,
+0x0a,0x0a,0x0a,0x0b,0x0a,0x0a,0x0a,0x0b,0x0a,0x0a,0x0a,0x0b,0x0e,0x0e,0x0e,0x0f};
 //
 // 4-bpp output renders 5 distinct levels of gray
 // the white pixel count determines the output brightness
@@ -373,15 +373,25 @@ void ONEBITGFX::close()
         (*_obgfx.pfnClose)(_obgfx.OBGFXFile.fHandle);
 } /* close() */
 
+void ONEBITGFX::setDrawParameters(float scale, int iPixelType, int iStartX, int iStartY, int iWidth, int iHeight)
+{
+    _obgfx.window.iScale = (uint32_t)(scale * 65536.0f); // convert to uint32
+    _obgfx.window.x = iStartX;
+    _obgfx.window.y = iStartY; // upper left corner of interest (source pixels)
+    _obgfx.window.iWidth = iWidth; // width of destination window (for clipping purposes)
+    _obgfx.window.iHeight = iHeight;
+//    uint8_t *p4BPP; // user-supplied buffer for 4-bpp grayscale output
+    _obgfx.window.ucPixelType = (uint8_t)iPixelType;
+} /* setDrawParameters() */
 //
 // Decode an image
 // returns:
 // 1 = good result
 // 0 = error
 //
-int ONEBITGFX::decode(OBGFXWINDOW *pWin)
+int ONEBITGFX::decode()
 {
-    return Decode(&_obgfx, pWin);
+    return Decode(&_obgfx);
 } /* decode() */
 //
 // The following functions are written in plain C and have no
@@ -562,6 +572,14 @@ static int OBGFXParseInfo(OBGFXIMAGE *pPage)
         pPage->iError = OBGFX_UNSUPPORTED_FEATURE;
         return 0;
     }
+    // Default output values
+    pPage->window.iScale = 65536; // 1.0 scale
+    pPage->window.x = 0;
+    pPage->window.y = 0; // upper left corner of interest (source pixels)
+    pPage->window.iWidth = pPage->iWidth; // dest window size
+    pPage->window.iHeight = pPage->iHeight;
+    pPage->window.ucPixelType = OBGFX_PIXEL_1BPP;
+
     return 1;
 } /* OBGFXParseInfo() */
 
@@ -613,20 +631,21 @@ static void Scale2Gray(uint8_t *source, int width, int iPitch)
         c = source[x];  // first 4x2 block
         d = source[x+iPitch];
         /* two lines of 8 pixels are converted to one line of 4 pixels */
-        ucPixels = (ucGray2BPP[(unsigned char)((c & 0xf0) | (d >> 4))] << 6); // first pair
-        ucPixels |= (ucGray2BPP[(unsigned char)((c << 4) | (d & 0x0f))])<<4; // second pair
+        ucPixels = (ucGray2BPP[(unsigned char)((c & 0xf0) | (d >> 4))] << 4);
+        ucPixels |= (ucGray2BPP[(unsigned char)((c << 4) | (d & 0x0f))]);
+        *dest++ = ucPixels;
         c = source[x+1];  // next 4x2 block
         d = source[x+iPitch+1];
-        ucPixels |= (ucGray2BPP[(unsigned char)((c & 0xf0) | (d >> 4))])<<2; // third pair
-        ucPixels |= ucGray2BPP[(unsigned char)((c << 4) | (d & 0x0f))]; // fourth pair
+        ucPixels = (ucGray2BPP[(unsigned char)((c & 0xf0) | (d >> 4))])<<4;
+        ucPixels |= ucGray2BPP[(unsigned char)((c << 4) | (d & 0x0f))];
         *dest++ = ucPixels;
     }
     if (width & 4) // 2 more pixels to do
     {
         c = source[x];
         d = source[x + iPitch];
-        ucPixels = (ucGray2BPP[(unsigned char) ((c & 0xf0) | (d >> 4))]) << 6;
-        ucPixels |= (ucGray2BPP[(unsigned char) ((c << 4) | (d & 0x0f))] << 4);
+        ucPixels = (ucGray2BPP[(unsigned char) ((c & 0xf0) | (d >> 4))]) << 4;
+        ucPixels |= (ucGray2BPP[(unsigned char) ((c << 4) | (d & 0x0f))]);
         dest[0] = ucPixels;
     }
 } /* Scale2Gray() */
@@ -662,7 +681,7 @@ static void Scale2Gray4BPP(uint8_t *source, uint8_t *dest, int width, int iPitch
     }
 } /* Scale2Gray4BPP() */
 
-static void OBGFXDrawLine(OBGFXIMAGE *pPage, OBGFXWINDOW *pWin, int y, int16_t *pCurFlips)
+static void OBGFXDrawLine(OBGFXIMAGE *pPage, int y, int16_t *pCurFlips)
 {
     int x, len, run, sx, srun;
     uint8_t lBit, rBit, *p;
@@ -670,26 +689,18 @@ static void OBGFXDrawLine(OBGFXIMAGE *pPage, OBGFXWINDOW *pWin, int y, int16_t *
     uint32_t u32ScaleFactor;
     uint8_t *pDest;
     OBGFXDRAW obgd;
+
+    u32ScaleFactor = pPage->window.iScale;
+    iStart = pPage->window.x;
     
-    if (pWin == NULL)
-        u32ScaleFactor = 0x10000; // default to 1:1 for now
-    else
-    {
-        u32ScaleFactor = pWin->iScale;
-        iStart = pWin->x;
-    }
-    pPage->u32Accum += u32ScaleFactor;
-    if ((pWin && y < pWin->y) || (y & 1 && u32ScaleFactor < 0x4000))
-        return; // no need to draw anything, if shrinking too tiny, skip every line
-    
-    if (y == 0 || (pWin && y == pWin->y)) // start first line at white
+    if (y == pPage->window.y) // start first line at white
     {
         pPage->u32Accum = 0;
         pPage->y = 0; // old Y value
         pPage->iPitch = (pPage->iWidth+7)>>3;
-        if (pWin && pWin->iScale != 0 && pWin->iScale != 0x10000)
-            pPage->iPitch = ((pPage->iWidth * pWin->iScale) >> 16);
-        if (pWin && pWin->ucPixelType >= OBGFX_PIXEL_2BPP)
+        if (u32ScaleFactor != 0x10000)
+            pPage->iPitch = (((pPage->iWidth * u32ScaleFactor) >> 16) + 7) >> 3;
+        if (pPage->window.ucPixelType >= OBGFX_PIXEL_2BPP)
         {
             pPage->iPitch *= 2; // scale-to-gray is 4x as much memory
             if (pPage->iPitch*2 < MAX_BUFFERED_PIXELS)
@@ -701,18 +712,22 @@ static void OBGFXDrawLine(OBGFXIMAGE *pPage, OBGFXWINDOW *pWin, int y, int16_t *
                 memset(pPage->ucPixels, 0xff, pPage->iPitch); // start as 0xff (white)
         }
     }
-       pDest = pPage->ucPixels;
-       if (pWin && pWin->ucPixelType >= OBGFX_PIXEL_2BPP)
+    pDest = pPage->ucPixels;
+    if (pPage->window.ucPixelType >= OBGFX_PIXEL_2BPP)
        {
            u32ScaleFactor <<= 1; // double the scale
            if ((pPage->u32Accum >> 16) >= 1) // second line
                pDest = &pPage->ucPixels[pPage->iPitch];
        }
-       x = - iStart; /* Get the starting offset as negative */
-       while (x < xright)
+    pPage->u32Accum += u32ScaleFactor;
+    if ((y < pPage->window.y) || (y & 1 && u32ScaleFactor < 0x4000))
+        return; // no need to draw anything, if shrinking too tiny, skip every line
+       x = 0;
+       while (x < xright) // while the scaled x is within the window bounds
         {
             x = *pCurFlips++; // black starting point
             run = *pCurFlips++ - x; // get the black run
+            x -= iStart;
           if (x >= xright || run == 0)
              break;
           if ((x + run) > 0) /* If the run is visible, draw it */
@@ -722,12 +737,11 @@ static void OBGFXDrawLine(OBGFXIMAGE *pPage, OBGFXWINDOW *pWin, int y, int16_t *
                 run += x; /* draw only visible part of run */
                 x = 0;
                 }
+          /* Scale the starting x and run down to size */
              if ((x + run) > xright) /* Don't let it go off right edge */
                 run = xright - x;
-          /* Scale the starting x and run down to size */
              sx = (x * u32ScaleFactor)>>16;
              srun = (run * u32ScaleFactor)>>16;
-    //         srun -= sx;
              if (srun < 1) /* Always draw at least one pixel */
                 srun = 1;
              /* Draw this run */
@@ -758,47 +772,45 @@ static void OBGFXDrawLine(OBGFXIMAGE *pPage, OBGFXWINDOW *pWin, int y, int16_t *
         pPage->u32Accum = 0x20000;
         obgd.ucLast = 1;
     }
-    obgd.ucPixelType = (pWin) ? pWin->ucPixelType : OBGFX_PIXEL_1BPP; // default output
+    obgd.ucPixelType = pPage->window.ucPixelType;
     if (obgd.ucPixelType >= OBGFX_PIXEL_2BPP)
     {
         if ((pPage->u32Accum >> 16) >= 2)
         {
             // Time to output the two lines as scale-to-gray
             // Convert the stretched pixels to 2-bit grayscale
-            if (pWin->ucPixelType == OBGFX_PIXEL_2BPP)
-                Scale2Gray(pPage->ucPixels, pPage->iWidth*2, pPage->iPitch);
-            else
-                Scale2Gray4BPP(pPage->ucPixels, pWin->p4BPP, pPage->iWidth*2, pPage->iPitch);
-            obgd.iWidth = pPage->iWidth;
+            obgd.iWidth = (pPage->iWidth * u32ScaleFactor) >> 17;
             obgd.iHeight = pPage->iHeight;
             obgd.pPixels = pPage->ucPixels;
-            obgd.y = ((y - pWin->y) * u32ScaleFactor) >> 15; // scaled and centered
-            (*pPage->pfnDraw)(&obgd); // callback
-            pPage->u32Accum &= 0xffff; // reset local Y offset
+            if (obgd.ucPixelType == OBGFX_PIXEL_2BPP)
+                Scale2Gray(pPage->ucPixels, obgd.iWidth*2, pPage->iPitch);
+            else
+                Scale2Gray4BPP(pPage->ucPixels, pPage->window.p4BPP, obgd.iWidth*2, pPage->iPitch);
+            // When stretching the image, we may need to repeat lines
+            while (pPage->u32Accum >= 0x20000)
+            {
+                obgd.y = pPage->y;
+                (*pPage->pfnDraw)(&obgd); // callback
+                pPage->y++;
+                pPage->u32Accum -= 0x20000;
+            }
             if (pPage->iPitch*2 < MAX_BUFFERED_PIXELS)
                 memset(pPage->ucPixels, 0xff, pPage->iPitch*2); // start as 0xff (white)
         }
     }
     else if ((pPage->u32Accum >> 16) >= 1) // time to output the 1 line
     {
-        int iNewY;
         obgd.iHeight = pPage->iHeight;
         obgd.iWidth = (pPage->iWidth * u32ScaleFactor) >> 16;
         obgd.pPixels = pPage->ucPixels;
-        if (pWin)
-        {
-            iNewY = ((y - pWin->y - 1) * u32ScaleFactor) >> 16; // scaled and centered
-        }
-        else
-            iNewY = ((y - 1)* u32ScaleFactor) >> 16;
         // When stretching the image, we may need to repeat lines
-        while (iNewY > pPage->y)
+        while (pPage->u32Accum >= 0x10000)
         {
             obgd.y = pPage->y;
             (*pPage->pfnDraw)(&obgd); // callback
             pPage->y++;
+            pPage->u32Accum -= 0x10000;
         }
-        pPage->u32Accum &= 0xffff;
         if (pPage->iPitch < MAX_BUFFERED_PIXELS)
             memset(pPage->ucPixels, 0xff, pPage->iPitch); // start as 0xff (white)
     }
@@ -807,7 +819,7 @@ static void OBGFXDrawLine(OBGFXIMAGE *pPage, OBGFXWINDOW *pWin, int y, int16_t *
 //
 // Decompress the VLC data
 //
-static int Decode(OBGFXIMAGE *pPage, OBGFXWINDOW *pWin)
+static int Decode(OBGFXIMAGE *pPage)
 {
 int i, y, xsize, tot_run, tot_run1 = 0;
 int32_t sCode;
@@ -1087,7 +1099,7 @@ uint8_t *pBuf, *pBufEnd;
       *pCur++ = xsize;
 
         // Draw the current line
-      OBGFXDrawLine(pPage, pWin, y, CurFlips);
+      OBGFXDrawLine(pPage, y, CurFlips);
       /*--- Swap current and reference lines ---*/
       t1 = RefFlips;
       RefFlips = CurFlips;

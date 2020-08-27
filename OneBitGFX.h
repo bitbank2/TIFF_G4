@@ -65,8 +65,9 @@ typedef struct obgfx_file_tag
 typedef struct obgfx_window_tag
 {
     int x, y; // upper left corner of interest (source pixels)
+    float fScale;
     uint32_t iScale; // 16:16 fixed scale factor (e.g. 0.5 = 0x8000)
-    int iWidth; // width of destination window (for clipping purposes)
+    int iWidth, iHeight; // destination window size (for clipping purposes)
     uint8_t *p4BPP; // user-supplied buffer for 4-bpp grayscale output
     uint8_t ucPixelType;
 } OBGFXWINDOW;
@@ -105,6 +106,7 @@ typedef struct obgfx_image_tag
     OBGFX_OPEN_CALLBACK *pfnOpen;
     OBGFX_CLOSE_CALLBACK *pfnClose;
     OBGFXFILE OBGFXFile;
+    OBGFXWINDOW window;
     int16_t CurFlips[MAX_IMAGE_WIDTH];
     int16_t RefFlips[MAX_IMAGE_WIDTH];
     uint8_t ucPixels[MAX_BUFFERED_PIXELS];
@@ -121,7 +123,8 @@ class ONEBITGFX
     int openTIFF(char *szFilename, OBGFX_OPEN_CALLBACK *pfnOpen, OBGFX_CLOSE_CALLBACK *pfnClose, OBGFX_READ_CALLBACK *pfnRead, OBGFX_SEEK_CALLBACK *pfnSeek, OBGFX_DRAW_CALLBACK *pfnDraw);
     int openRAW(int iWidth, int iHeight, int iFillOrder, uint8_t *pData, int iDataSize, OBGFX_DRAW_CALLBACK *pfnDraw);
     void close();
-    int decode(OBGFXWINDOW *pWin = NULL);
+    void setDrawParameters(float scale, int iPixelType, int iStartX, int iStartY, int iWidth, int iHeight);
+    int decode();
     int getWidth();
     int getHeight();
     int getLastError();

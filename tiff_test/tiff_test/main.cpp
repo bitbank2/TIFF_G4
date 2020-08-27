@@ -15,7 +15,6 @@
 #include "../../test_images/notes.h"
 
 ONEBITGFX obg;
-OBGFXWINDOW obgw;
 
 void OBGDraw(OBGFXDRAW *pDraw)
 {
@@ -26,11 +25,15 @@ uint8_t bitcount[16] = {0,1,1,2,1,2,2,2,1,2,2,2,2,2,2,3};
 
 int main(int argc, const char * argv[]) {
 //    int i;
-    
-    
 //    for (i=0; i<256; i++)
 //    {
-//        uint8_t c = bitcount[i & 0xf] | ((bitcount[i>>4]) << 2);
+//        uint8_t c, d;
+//        d = (i & 0xc0) >> 4;
+//        d |= (i & 0xc) >> 2;
+//        c = bitcount[d] << 2;
+//        d = (i & 0x30) >> 2;
+//        d |= (i & 0x3);
+//        c |= bitcount[d];
 //        printf("0x%02x,", c);
 //        if ((i & 15) == 15)
 //            printf("\n");
@@ -41,12 +44,9 @@ int main(int argc, const char * argv[]) {
     
     if(obg.openTIFF((uint8_t *)notes, sizeof(notes), OBGDraw))
     {
-        memset(&obgw, 0, sizeof(obgw));
-        obgw.iScale = 0x2000;
-        obgw.iWidth = 400;
-        obgw.ucPixelType = OBGFX_PIXEL_1BPP;
+        obg.setDrawParameters(0.125f, OBGFX_PIXEL_2BPP, 0, 0, 400, 300);
         printf("image size = %d x %d\n", obg.getWidth(), obg.getHeight());
-        if (obg.decode(&obgw))
+        if (obg.decode())
         {
             printf("Successfully decoded\n");
         }
