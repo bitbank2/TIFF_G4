@@ -297,102 +297,94 @@ static int32_t seekMem(OBGFXFILE *pFile, int32_t iPosition)
     pFile->iPos = iPosition;
     return iPosition;
 } /* seekMem() */
+#ifndef __cplusplus
+//
+// C API
+//
+int OBGFX_openTIFFMEM(OBGFXIMAGE *pImage, uint8_t *pData, int iDatasize, OBGFX_DRAW_CALLBACK *pfnDraw)
+{
+    memset(pImage, 0, sizeof(OBGFXIMAGE));
+    pImage->pfnRead = readMem;
+    pImage->pfnSeek = seekMem;
+    pImage->pfnDraw = pfnDraw;
+    pImage->pfnOpen = NULL;
+    pImage->pfnClose = NULL;
+    pImage->OBGFXFile.iSize = iDatasize;
+    pImage->OBGFXFile.pData = pData;
+    return OBGFXInit(pImage);
+} /* openTIFFMEM() */
 
-//
-// Memory initialization
-// Open a TIFF file and parse the header
-//
-int ONEBITGFX::openTIFF(uint8_t *pData, int iDataSize, OBGFX_DRAW_CALLBACK *pfnDraw)
+int OBGFX_openTIFFFile(OBGFXIMAGE *pImage, const char *szFilename, OBGFX_OPEN_CALLBACK *pfnOpen, OBGFX_CLOSE_CALLBACK *pfnClose, OBGFX_READ_CALLBACK *pfnRead, OBGFX_SEEK_CALLBACK *pfnSeek, OBGFX_DRAW_CALLBACK *pfnDraw)
 {
-    memset(&_obgfx, 0, sizeof(OBGFXIMAGE));
-    _obgfx.pfnRead = readMem;
-    _obgfx.pfnSeek = seekMem;
-    _obgfx.pfnDraw = pfnDraw;
-    _obgfx.pfnOpen = NULL;
-    _obgfx.pfnClose = NULL;
-    _obgfx.OBGFXFile.iSize = iDataSize;
-    _obgfx.OBGFXFile.pData = pData;
-    return OBGFXInit(&_obgfx);
-} /* openTIFF() */
-//
-// Work with 'headerless' compressed G4 data
-// Pass the width, height and fill order
-//
-int ONEBITGFX::openRAW(int iWidth, int iHeight, int iFillOrder, uint8_t *pData, int iDataSize, OBGFX_DRAW_CALLBACK *pfnDraw)
+    memset(pImage, 0, sizeof(OBGFXIMAGE));
+    pImage->pfnRead = pfnRead;
+    pImage->pfnSeek = pfnSeek;
+    pImage->pfnDraw = pfnDraw;
+    pImage->pfnOpen = pfnOpen;
+    pImage->pfnClose = pfnClose;
+    pImage->OBGFXFile.fHandle = (*pfnOpen)(szFilename, &pImage->OBGFXFile.iSize);
+    if (pImage->OBGFXFile.fHandle == NULL)
+       return 0;
+    return OBGFXInit(pImage);
+
+} /* openTIFFFile() */
+
+int OBGFX_openRAW(OBGFXIMAGE *pImage, int iWidth, int iHeight, int iFillOrder, uint8_t *pData, int iDataSize, OBGFX_DRAW_CALLBACK *pfnDraw)
 {
-    memset(&_obgfx, 0, sizeof(OBGFXIMAGE));
-    _obgfx.pfnRead = readMem;
-    _obgfx.pfnSeek = seekMem;
-    _obgfx.pfnDraw = pfnDraw;
-    _obgfx.pfnOpen = NULL;
-    _obgfx.pfnClose = NULL;
-    _obgfx.OBGFXFile.iSize = iDataSize;
-    _obgfx.OBGFXFile.pData = pData;
-    _obgfx.iWidth = iWidth;
-    _obgfx.iHeight = iHeight;
-    _obgfx.ucFillOrder = (uint8_t)iFillOrder;
+    memset(pImage, 0, sizeof(OBGFXIMAGE));
+    pImage->pfnRead = readMem;
+    pImage->pfnSeek = seekMem;
+    pImage->pfnDraw = pfnDraw;
+    pImage->pfnOpen = NULL;
+    pImage->pfnClose = NULL;
+    pImage->OBGFXFile.iSize = iDataSize;
+    pImage->OBGFXFile.pData = pData;
+    pImage->iWidth = iWidth;
+    pImage->iHeight = iHeight;
+    pImage->ucFillOrder = (uint8_t)iFillOrder;
     return 1;
+
 } /* openRAW() */
 
-int ONEBITGFX::getLastError()
+void OBGFX_close(OBGFXIMAGE *pImage)
 {
-    return _obgfx.iError;
-} /* getLastError() */
-
-int ONEBITGFX::getWidth()
-{
-    return _obgfx.iWidth;
-} /* getWidth() */
-
-int ONEBITGFX::getHeight()
-{
-    return _obgfx.iHeight;
-} /* getHeight() */
-
-//
-// File (SD/MMC) based initialization
-//
-int ONEBITGFX::openTIFF(char *szFilename, OBGFX_OPEN_CALLBACK *pfnOpen, OBGFX_CLOSE_CALLBACK *pfnClose, OBGFX_READ_CALLBACK *pfnRead, OBGFX_SEEK_CALLBACK *pfnSeek, OBGFX_DRAW_CALLBACK *pfnDraw)
-{
-    memset(&_obgfx, 0, sizeof(OBGFXIMAGE));
-    _obgfx.pfnRead = pfnRead;
-    _obgfx.pfnSeek = pfnSeek;
-    _obgfx.pfnDraw = pfnDraw;
-    _obgfx.pfnOpen = pfnOpen;
-    _obgfx.pfnClose = pfnClose;
-    _obgfx.OBGFXFile.fHandle = (*pfnOpen)(szFilename, &_obgfx.OBGFXFile.iSize);
-    if (_obgfx.OBGFXFile.fHandle == NULL)
-       return 0;
-    return OBGFXInit(&_obgfx);
-
-} /* openTIFF() */
-
-void ONEBITGFX::close()
-{
-    if (_obgfx.pfnClose)
-        (*_obgfx.pfnClose)(_obgfx.OBGFXFile.fHandle);
+    if (pImage->pfnClose)
+        (*pImage->pfnClose)(pImage->OBGFXFile.fHandle);
 } /* close() */
 
-void ONEBITGFX::setDrawParameters(float scale, int iPixelType, int iStartX, int iStartY, int iWidth, int iHeight)
+void OBGFX_setDrawParameters(OBGFXIMAGE *pImage, float scale, int iPixelType, int iStartX, int iStartY, int iWidth, int iHeight)
 {
-    _obgfx.window.iScale = (uint32_t)(scale * 65536.0f); // convert to uint32
-    _obgfx.window.x = iStartX;
-    _obgfx.window.y = iStartY; // upper left corner of interest (source pixels)
-    _obgfx.window.iWidth = iWidth; // width of destination window (for clipping purposes)
-    _obgfx.window.iHeight = iHeight;
-//    uint8_t *p4BPP; // user-supplied buffer for 4-bpp grayscale output
-    _obgfx.window.ucPixelType = (uint8_t)iPixelType;
+    pImage->window.iScale = (uint32_t)(scale * 65536.0f); // convert to uint32
+    pImage->window.x = iStartX;
+    pImage->window.y = iStartY; // upper left corner of interest (source pixels)
+    pImage->window.iWidth = iWidth; // width of destination window (for clipping purposes)
+    pImage->window.iHeight = iHeight;
+    //    uint8_t *p4BPP; // user-supplied buffer for 4-bpp grayscale output
+    pImage->window.ucPixelType = (uint8_t)iPixelType;
+
 } /* setDrawParameters() */
-//
-// Decode an image
-// returns:
-// 1 = good result
-// 0 = error
-//
-int ONEBITGFX::decode()
+
+int OBGFX_decode(OBGFXIMAGE *pImage)
 {
-    return Decode(&_obgfx);
+    return Decode(pImage);
 } /* decode() */
+
+int OBGFX_getWidth(OBGFXIMAGE *pImage)
+{
+    return pImage->iWidth;
+} /* getWidth() */
+
+int OBGFX_getHeight(OBGFXIMAGE *pImage)
+{
+    return pImage->iHeight;
+} /* getHeight() */
+
+int OBGFX_getLastError(OBGFXIMAGE *pImage)
+{
+    return pImage->iError;
+} /* getLastError() */
+
+#endif // !__cplusplus
 //
 // The following functions are written in plain C and have no
 // 3rd party dependencies, not even the C runtime library
@@ -1112,4 +1104,4 @@ uint8_t *pBuf, *pBufEnd;
 
    return (pPage->iError == 0);
 
-} /* PILReadG4() */
+} /* Decode() */

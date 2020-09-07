@@ -8,7 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		1954AB8524E75E50002602FB /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1954AB8424E75E50002602FB /* main.cpp */; };
-		1954AB8D24E75ECB002602FB /* OneBitGFX.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1954AB8B24E75ECB002602FB /* OneBitGFX.cpp */; };
+		196A914D2506783700A8B470 /* OneBitGFX.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 196A914B2506783700A8B470 /* OneBitGFX.cpp */; };
+		196A914E2506783700A8B470 /* onebitgfx.c in Sources */ = {isa = PBXBuildFile; fileRef = 196A914C2506783700A8B470 /* onebitgfx.c */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -26,8 +27,9 @@
 /* Begin PBXFileReference section */
 		1954AB8124E75E50002602FB /* tiff_test */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = tiff_test; sourceTree = BUILT_PRODUCTS_DIR; };
 		1954AB8424E75E50002602FB /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
-		1954AB8B24E75ECB002602FB /* OneBitGFX.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = OneBitGFX.cpp; path = ../../OneBitGFX.cpp; sourceTree = "<group>"; };
-		1954AB8C24E75ECB002602FB /* OneBitGFX.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = OneBitGFX.h; path = ../../OneBitGFX.h; sourceTree = "<group>"; };
+		196A914A2506783700A8B470 /* OneBitGFX.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = OneBitGFX.h; path = ../../src/OneBitGFX.h; sourceTree = "<group>"; };
+		196A914B2506783700A8B470 /* OneBitGFX.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = OneBitGFX.cpp; path = ../../src/OneBitGFX.cpp; sourceTree = "<group>"; };
+		196A914C2506783700A8B470 /* onebitgfx.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = onebitgfx.c; path = ../../src/onebitgfx.c; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -60,8 +62,9 @@
 		1954AB8324E75E50002602FB /* tiff_test */ = {
 			isa = PBXGroup;
 			children = (
-				1954AB8B24E75ECB002602FB /* OneBitGFX.cpp */,
-				1954AB8C24E75ECB002602FB /* OneBitGFX.h */,
+				196A914C2506783700A8B470 /* onebitgfx.c */,
+				196A914B2506783700A8B470 /* OneBitGFX.cpp */,
+				196A914A2506783700A8B470 /* OneBitGFX.h */,
 				1954AB8424E75E50002602FB /* main.cpp */,
 			);
 			path = tiff_test;
@@ -124,7 +127,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1954AB8D24E75ECB002602FB /* OneBitGFX.cpp in Sources */,
+				196A914E2506783700A8B470 /* onebitgfx.c in Sources */,
+				196A914D2506783700A8B470 /* OneBitGFX.cpp in Sources */,
 				1954AB8524E75E50002602FB /* main.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

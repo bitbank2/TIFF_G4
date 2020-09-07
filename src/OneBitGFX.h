@@ -84,7 +84,7 @@ typedef struct obgfx_draw_tag
 typedef int32_t (OBGFX_READ_CALLBACK)(OBGFXFILE *pFile, uint8_t *pBuf, int32_t iLen);
 typedef int32_t (OBGFX_SEEK_CALLBACK)(OBGFXFILE *pFile, int32_t iPosition);
 typedef void (OBGFX_DRAW_CALLBACK)(OBGFXDRAW *pDraw);
-typedef void * (OBGFX_OPEN_CALLBACK)(char *szFilename, int32_t *pFileSize);
+typedef void * (OBGFX_OPEN_CALLBACK)(const char *szFilename, int32_t *pFileSize);
 typedef void (OBGFX_CLOSE_CALLBACK)(void *pHandle);
 
 //
@@ -113,6 +113,7 @@ typedef struct obgfx_image_tag
     uint8_t ucFileBuf[FILE_BUF_SIZE]; // holds temp data and pixel stack
 } OBGFXIMAGE;
 
+#ifdef __cplusplus
 //
 // The ONEBITGFX class wraps portable C code which does the actual work
 //
@@ -120,7 +121,7 @@ class ONEBITGFX
 {
   public:
     int openTIFF(uint8_t *pData, int iDataSize, OBGFX_DRAW_CALLBACK *pfnDraw);
-    int openTIFF(char *szFilename, OBGFX_OPEN_CALLBACK *pfnOpen, OBGFX_CLOSE_CALLBACK *pfnClose, OBGFX_READ_CALLBACK *pfnRead, OBGFX_SEEK_CALLBACK *pfnSeek, OBGFX_DRAW_CALLBACK *pfnDraw);
+    int openTIFF(const char *szFilename, OBGFX_OPEN_CALLBACK *pfnOpen, OBGFX_CLOSE_CALLBACK *pfnClose, OBGFX_READ_CALLBACK *pfnRead, OBGFX_SEEK_CALLBACK *pfnSeek, OBGFX_DRAW_CALLBACK *pfnDraw);
     int openRAW(int iWidth, int iHeight, int iFillOrder, uint8_t *pData, int iDataSize, OBGFX_DRAW_CALLBACK *pfnDraw);
     void close();
     void setDrawParameters(float scale, int iPixelType, int iStartX, int iStartY, int iWidth, int iHeight);
@@ -132,6 +133,17 @@ class ONEBITGFX
   private:
     OBGFXIMAGE _obgfx;
 };
+#else
+    int OBGFX_openTIFFRAM(OBGFXIMAGE *pImage, uint8_t *pData, int iDatasize, OBGFX_DRAW_CALLBACK *pfnDraw);
+    int OBGFX_openTIFFFile(OBGFXIMAGE *pImage, const char *szFilename, OBGFX_OPEN_CALLBACK *pfnOpen, OBGFX_CLOSE_CALLBACK *pfnClose, OBGFX_READ_CALLBACK *pfnRead, OBGFX_SEEK_CALLBACK *pfnSeek, OBGFX_DRAW_CALLBACK *pfnDraw);
+    int OBGFX_openRAW(OBGFXIMAGE *pImage, int iWidth, int iHeight, int iFillOrder, uint8_t *pData, int iDataSize, OBGFX_DRAW_CALLBACK *pfnDraw);
+    void OBGFX_close(OBGFXIMAGE *pImage);
+    void OBGFX_setDrawParameters(OBGFXIMAGE *pImage, float scale, int iPixelType, int iStartX, int iStartY, int iWidth, int iHeight);
+    int OBGFX_decode(OBGFXIMAGE *pImage);
+    int OBGFX_getWidth(OBGFXIMAGE *pImage);
+    int OBGFX_getHeight(OBGFXIMAGE *pImage);
+    int OBGFX_getLastError(OBGFXIMAGE *pImage);
+#endif
 
 // Due to unaligned memory causing an exception, we have to do these macros the slow way
 #define MOTOLONG(p) (((*p)<<24UL) + ((*(p+1))<<16UL) + ((*(p+2))<<8UL) + (*(p+3)))
