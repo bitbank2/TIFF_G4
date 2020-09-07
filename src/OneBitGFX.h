@@ -135,7 +135,11 @@ class ONEBITGFX
 };
 #else
     int OBGFX_openTIFFRAM(OBGFXIMAGE *pImage, uint8_t *pData, int iDatasize, OBGFX_DRAW_CALLBACK *pfnDraw);
-    int OBGFX_openTIFFFile(OBGFXIMAGE *pImage, const char *szFilename, OBGFX_OPEN_CALLBACK *pfnOpen, OBGFX_CLOSE_CALLBACK *pfnClose, OBGFX_READ_CALLBACK *pfnRead, OBGFX_SEEK_CALLBACK *pfnSeek, OBGFX_DRAW_CALLBACK *pfnDraw);
+#ifdef __LINUX__
+    int OBGFX_openTIFFFile(OBGFXIMAGE *pImage, const char *szFilename, OBGFX_DRAW_CALLBACK *pfnDraw);
+#else
+int OBGFX_openTIFFFile(OBGFXIMAGE *pImage, const char *szFilename, OBGFX_OPEN_CALLBACK *pfnOpen, OBGFX_CLOSE_CALLBACK *pfnClose, OBGFX_READ_CALLBACK *pfnRead, OBGFX_SEEK_CALLBACK *pfnSeek, OBGFX_DRAW_CALLBACK *pfnDraw);
+#endif
     int OBGFX_openRAW(OBGFXIMAGE *pImage, int iWidth, int iHeight, int iFillOrder, uint8_t *pData, int iDataSize, OBGFX_DRAW_CALLBACK *pfnDraw);
     void OBGFX_close(OBGFXIMAGE *pImage);
     void OBGFX_setDrawParameters(OBGFXIMAGE *pImage, float scale, int iPixelType, int iStartX, int iStartY, int iWidth, int iHeight);

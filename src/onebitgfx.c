@@ -297,11 +297,43 @@ static int32_t seekMem(OBGFXFILE *pFile, int32_t iPosition)
     pFile->iPos = iPosition;
     return iPosition;
 } /* seekMem() */
+#if defined( __LINUX__ ) || defined( __MCUXPRESSO )
+
+static void closeFile(void *handle)
+{
+    fclose((FILE *)handle);
+} /* closeFile() */
+
+static int32_t seekFile(OBGFXFILE *pFile, int32_t iPosition)
+{
+    if (iPosition < 0) iPosition = 0;
+    else if (iPosition >= pFile->iSize) iPosition = pFile->iSize-1;
+    pFile->iPos = iPosition;
+    fseek((FILE *)pFile->fHandle, iPosition, SEEK_SET);
+    return iPosition;
+} /* seekFile() */
+
+static int32_t readFile(OBGFXFILE *pFile, uint8_t *pBuf, int32_t iLen)
+{
+    int32_t iBytesRead;
+
+    iBytesRead = iLen;
+    if ((pFile->iSize - pFile->iPos) < iLen)
+       iBytesRead = pFile->iSize - pFile->iPos;
+    if (iBytesRead <= 0)
+       return 0;
+    iBytesRead = (int)fread(pBuf, 1, iBytesRead, (FILE *)pFile->fHandle);
+    pFile->iPos += iBytesRead;
+    return iBytesRead;
+} /* readFile() */
+
+#endif // __LINUX__
+
 #ifndef __cplusplus
 //
 // C API
 //
-int OBGFX_openTIFFMEM(OBGFXIMAGE *pImage, uint8_t *pData, int iDatasize, OBGFX_DRAW_CALLBACK *pfnDraw)
+int OBGFX_openTIFFRAM(OBGFXIMAGE *pImage, uint8_t *pData, int iDatasize, OBGFX_DRAW_CALLBACK *pfnDraw)
 {
     memset(pImage, 0, sizeof(OBGFXIMAGE));
     pImage->pfnRead = readMem;
@@ -312,8 +344,26 @@ int OBGFX_openTIFFMEM(OBGFXIMAGE *pImage, uint8_t *pData, int iDatasize, OBGFX_D
     pImage->OBGFXFile.iSize = iDatasize;
     pImage->OBGFXFile.pData = pData;
     return OBGFXInit(pImage);
-} /* openTIFFMEM() */
+} /* openTIFFRAM() */
 
+#ifdef __LINUX__
+int OBGFX_openTIFFFile(OBGFXIMAGE *pImage, const char *szFilename, OBGFX_DRAW_CALLBACK *pfnDraw)
+{
+    memset(pImage, 0, sizeof(OBGFXIMAGE));
+    pImage->pfnRead = readFile;
+    pImage->pfnSeek = seekFile;
+    pImage->pfnDraw = pfnDraw;
+    pImage->pfnClose = closeFile;
+    pImage->OBGFXFile.fHandle = fopen(szFilename, "r+b");
+    if (pImage->OBGFXFile.fHandle == NULL)
+       return 0;
+    fseek((FILE *)pImage->OBGFXFile.fHandle, 0, SEEK_END);
+    pImage->OBGFXFile.iSize = (int)ftell((FILE *)pImage->OBGFXFile.fHandle);
+    fseek((FILE *)pImage->OBGFXFile.fHandle, 0, SEEK_SET);
+    return OBGFXInit(pImage);
+
+} /* openTIFFFile() */
+#else
 int OBGFX_openTIFFFile(OBGFXIMAGE *pImage, const char *szFilename, OBGFX_OPEN_CALLBACK *pfnOpen, OBGFX_CLOSE_CALLBACK *pfnClose, OBGFX_READ_CALLBACK *pfnRead, OBGFX_SEEK_CALLBACK *pfnSeek, OBGFX_DRAW_CALLBACK *pfnDraw)
 {
     memset(pImage, 0, sizeof(OBGFXIMAGE));
@@ -328,6 +378,7 @@ int OBGFX_openTIFFFile(OBGFXIMAGE *pImage, const char *szFilename, OBGFX_OPEN_CA
     return OBGFXInit(pImage);
 
 } /* openTIFFFile() */
+#endif
 
 int OBGFX_openRAW(OBGFXIMAGE *pImage, int iWidth, int iHeight, int iFillOrder, uint8_t *pData, int iDataSize, OBGFX_DRAW_CALLBACK *pfnDraw)
 {
@@ -606,7 +657,7 @@ static void OBGFXGetMoreData(OBGFXIMAGE *pPage)
         }
         pPage->iVLCSize += iBytesRead;
     }
-} /* JPEGGetMoreData() */
+} /* OBGFXGetMoreData() */
 //
 // Width is the doubled pixel width
 // Convert 1-bpp into 2-bit grayscale

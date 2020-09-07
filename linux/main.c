@@ -39,9 +39,10 @@ int rc;
     if (argc == 2)
         rc = OBGFX_openTIFFFile(&obgi, argv[1], OBGDraw);
     else
-	rc = OBGFX_openRAM(&obgi, (uint8_t *)notes, sizeof(notes), OBGDraw);
+	rc = OBGFX_openTIFFRAM(&obgi, (uint8_t *)notes, sizeof(notes), OBGDraw);
     if (rc)
     {
+        printf("Image opened, size = %d x %d\n", OBGFX_getWidth(&obgi), OBGFX_getHeight(&obgi));
         lTime = micros();
 	if (OBGFX_decode(&obgi)) {
 	    lTime = micros() - lTime;
