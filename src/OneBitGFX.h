@@ -74,7 +74,7 @@ typedef struct obgfx_window_tag
 
 typedef struct obgfx_draw_tag
 {
-    int y; // current ;ome
+    int y; // current line
     int iWidth, iHeight; // size of entire image in pixels
     uint8_t *pPixels; // 1 or 2-bit pixels
     uint8_t ucPixelType, ucLast;
