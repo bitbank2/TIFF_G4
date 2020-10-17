@@ -27,7 +27,7 @@ static int OBGFXParseInfo(OBGFXIMAGE *pPage);
 static void OBGFXGetMoreData(OBGFXIMAGE *pPage);
 static int Decode(OBGFXIMAGE *pImage);
 
-#include "onebitgfx.c"
+#include "tiffg4.c"
 
 //
 // Memory initialization
