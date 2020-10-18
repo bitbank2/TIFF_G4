@@ -1,16 +1,16 @@
-// JPEG perf test
+// TIFF G4 perf test
 // Written by Larry Bank
 // 
-// Will open an arbitrary JPEG file if passed on the command line
-// or will use the sample image (tulips)
+// Will open an arbitrary TIFF file if passed on the command line
+// or will use the sample image (notes)
 //
 #include <stdint.h>
 #include <string.h>
 #include <time.h>
-#include "../src/OneBitGFX.h"
+#include "../src/TIFF_G4.h"
 #include "../test_images/notes.h"
 
-OBGFXIMAGE obgi;
+TIFFIMAGE tiff;
 
 long micros()
 {
@@ -23,9 +23,9 @@ struct timespec res;
     return iTime;
 } /* micros() */
 
-void OBGDraw(OBGFXDRAW *pDraw)
+void TIFFDraw(TIFFDRAW *pDraw)
 {
-} /* OBGDraw() */
+} /* TIFFDraw() */
 
 int main(int argc, char *argv[])
 {
@@ -37,27 +37,27 @@ int rc;
     printf("Or pass a filename\n\n");
 
     if (argc == 2)
-        rc = OBGFX_openTIFFFile(&obgi, argv[1], OBGDraw);
+        rc = TIFF_openTIFFFile(&tiff, argv[1], TIFFDraw);
     else
-	rc = OBGFX_openTIFFRAM(&obgi, (uint8_t *)notes, sizeof(notes), OBGDraw);
+	rc = TIFF_openTIFFRAM(&tiff, (uint8_t *)notes, sizeof(notes), TIFFDraw);
     if (rc)
     {
-        printf("Image opened, size = %d x %d\n", OBGFX_getWidth(&obgi), OBGFX_getHeight(&obgi));
+        printf("Image opened, size = %d x %d\n", TIFF_getWidth(&tiff), TIFF_getHeight(&tiff));
         lTime = micros();
-	if (OBGFX_decode(&obgi)) {
+	if (TIFF_decode(&tiff)) {
 	    lTime = micros() - lTime;
             printf("full sized decode in %d us\n", (int)lTime);
 	}
 	else
 	{
-            printf("Decode failed, last error = %d\n", OBGFX_getLastError(&obgi));
+            printf("Decode failed, last error = %d\n", TIFF_getLastError(&tiff));
 	    return 0;
 	}
-	OBGFX_close(&obgi);
+	TIFF_close(&tiff);
     }
     else
     {
-	printf("open() failed, last error = %d\n", OBGFX_getLastError(&obgi));
+	printf("open() failed, last error = %d\n", TIFF_getLastError(&tiff));
 	return 0;
     }
 

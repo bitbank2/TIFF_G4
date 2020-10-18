@@ -3,13 +3,13 @@ LIBS = -lm -lpthread
 
 all: demo
 
-demo: onebitgfx.o main.o makefile
-	$(CC) main.o onebitgfx.o $(LIBS) -o demo
+demo: tiffg4.o main.o makefile
+	$(CC) main.o tiffg4.o $(LIBS) -o demo
 
-onebitgfx.o: ../src/onebitgfx.c ../src/OneBitGFX.h makefile
-	$(CC) $(CFLAGS) ../src/onebitgfx.c
+tiffg4.o: ../src/tiffg4.c ../src/TIFF_G4.h makefile
+	$(CC) $(CFLAGS) ../src/tiffg4.c
 
-main.o: main.c ../src/OneBitGFX.h makefile
+main.o: main.c ../src/TIFF_G4.h makefile
 	$(CC) $(CFLAGS) main.c
 
 clean:
