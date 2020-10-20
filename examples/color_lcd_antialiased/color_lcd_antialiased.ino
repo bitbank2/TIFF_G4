@@ -105,8 +105,8 @@ float f;
   {
     if (tiff.openTIFF((uint8_t *)notes, (int)sizeof(notes), TIFFDraw))
     {
-      Serial.println(obg.getWidth(), DEC);
-      Serial.println(obg.getHeight(), DEC);
+      Serial.println(tiff.getWidth(), DEC);
+      Serial.println(tiff.getHeight(), DEC);
       tiff.setDrawParameters(f, TIFF_PIXEL_4BPP, 0, 0, 240, 135, ucTempBuf);
       tiff.decode();
       Serial.println("Finished!");
