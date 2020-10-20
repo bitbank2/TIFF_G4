@@ -36,6 +36,8 @@ int rc;
     printf("Run without parameters to test in-memory decoding\n");
     printf("Or pass a filename\n\n");
 
+    printf("TIFF Structure size = %d bytes\n", (int)sizeof(TIFFIMAGE));
+
     if (argc == 2)
         rc = TIFF_openTIFFFile(&tiff, argv[1], TIFFDraw);
     else
