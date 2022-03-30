@@ -17,6 +17,7 @@ Features:<br>
 - TIFF G4 image data can come from memory (FLASH/RAM), SDCard or any media you provide.
 - CCITT G4 data can be raw (you provide size info), or contained in a TIFF file structure.
 - Simple class and callback design allows you to easily add TIFF G4 support to any application.
+- Includes simple color icon drawing function to draw images at any scale, color and with antialiasing.
 - The C code doing the heavy lifting is completely portable and has no external dependencies.
 - Includes fast anti-aliasing options (2 or 4-bits per pixel output).
 - Can scale the decoded image by any fractional amount (smaller or larger).
