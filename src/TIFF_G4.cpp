@@ -1,5 +1,5 @@
 //
-// One Bit GFX
+// TIFF G4 decoder
 // A TIFF / 1-bpp image library
 // written by Larry Bank
 // bitbank@pobox.com
@@ -20,7 +20,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 #include "TIFF_G4.h"
-
 // forward references
 static int TIFFInit(TIFFIMAGE *pTIFF);
 static int TIFFParseInfo(TIFFIMAGE *pPage);
@@ -28,7 +27,6 @@ static void TIFFGetMoreData(TIFFIMAGE *pPage);
 static int Decode(TIFFIMAGE *pImage);
 
 #include "tiffg4.c"
-
 //
 // Memory initialization
 // Open a TIFF file and parse the header
@@ -104,6 +102,21 @@ void TIFFG4::close()
         (*_tiff.pfnClose)(_tiff.TIFFFile.fHandle);
 } /* close() */
 
+int TIFFG4::drawIcon(float scale, int iSrcX, int iSrcY, int iSrcWidth, int iSrcHeight, int iDestX, int iDestY, uint16_t usFGColor, uint16_t usBGColor)
+{
+    _tiff.window.iScale = (uint32_t)(scale * 65536.0f); // convert to uint32
+    _tiff.window.x = iSrcX;
+    _tiff.window.y = iSrcY; // upper left corner of interest (source pixels)
+    _tiff.window.iWidth = iSrcWidth; // width of destination window (for clipping purposes)
+    _tiff.window.iHeight = iSrcHeight;
+    _tiff.window.dstx = iDestX;
+    _tiff.window.dsty = iDestY;
+    _tiff.window.ucPixelType = TIFF_PIXEL_16BPP;
+    _tiff.usFG = usFGColor;
+    _tiff.usBG = usBGColor;
+    return Decode(&_tiff);
+} /* drawIcon() */
+
 void TIFFG4::setDrawParameters(float scale, int iPixelType, int iStartX, int iStartY, int iWidth, int iHeight, uint8_t *p4BPPBuf)
 {
     _tiff.window.iScale = (uint32_t)(scale * 65536.0f); // convert to uint32
@@ -120,7 +133,9 @@ void TIFFG4::setDrawParameters(float scale, int iPixelType, int iStartX, int iSt
 // 1 = good result
 // 0 = error
 //
-int TIFFG4::decode()
+int TIFFG4::decode(int iDestX, int iDestY)
 {
+    _tiff.window.dstx = iDestX;
+    _tiff.window.dsty = iDestY;
     return Decode(&_tiff);
 } /* decode() */

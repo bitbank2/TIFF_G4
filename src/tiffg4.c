@@ -645,7 +645,7 @@ static void TIFFGetMoreData(TIFFIMAGE *pPage)
     {
         int i, iBytesRead;
         // Try to read enough to fill the buffer
-        iBytesRead = (*pPage->pfnRead)(&pPage->TIFFFile, &pPage->ucFileBuf[pPage->iVLCSize], FILE_BUF_SIZE - pPage->iVLCSize); // max length we can read
+        iBytesRead = (*pPage->pfnRead)(&pPage->TIFFFile, &pPage->ucFileBuf[pPage->iVLCSize], TIFF_FILE_BUF_SIZE - pPage->iVLCSize); // max length we can read
         // flip bit direction if needed
         if (pPage->ucFillOrder == BITDIR_LSB_FIRST)
         {
@@ -658,6 +658,73 @@ static void TIFFGetMoreData(TIFFIMAGE *pPage)
         pPage->iVLCSize += iBytesRead;
     }
 } /* TIFFGetMoreData() */
+//
+// Width is the doubled pixel width
+// Convert 1-bpp into RGB565
+//
+static void Scale2Color(TIFFIMAGE *pPage, int width)
+{
+    int iPitch = pPage->iPitch;
+    int x, count;
+    uint8_t shift, ucPixels, c, d, *dest, *source;
+    uint16_t *d16, usPixel;
+    const uint32_t ulClrConvert0[4] = {0,5,11,16};
+    const uint32_t ulClrConvert1[4] = {0,0,0,16}; // for scales >= 1.0
+    uint32_t *pConvert;
+    const uint32_t ulClrMask = 0x07e0f81f;
+    uint32_t ulPixel, ulAlpha, ulFG, ulBG;
+    // Prepare the foreground and background colors for alpha calculations
+    ulFG = pPage->usFG | ((uint32_t)pPage->usFG << 16);
+    ulBG = pPage->usBG | ((uint32_t)pPage->usBG << 16);
+    ulFG &= ulClrMask; ulBG &= ulClrMask;
+
+    pConvert = (pPage->window.iScale >= 65536) ? ulClrConvert1 : ulClrConvert0;
+    dest = source = pPage->ucPixels; // write the new pixels over the old to save memory
+// Convert everything to 2-bpp grayscale first
+    for (x=0; x<width/8; x+=2) /* Convert a pair of lines to gray */
+    {
+        c = source[x];  // first 4x2 block
+        d = source[x+iPitch];
+        /* two lines of 8 pixels are converted to one line of 4 pixels */
+        ucPixels = (ucGray2BPP[(unsigned char)((c & 0xf0) | (d >> 4))] << 4);
+        ucPixels |= (ucGray2BPP[(unsigned char)((c << 4) | (d & 0x0f))]);
+        *dest++ = ucPixels;
+        c = source[x+1];  // next 4x2 block
+        d = source[x+iPitch+1];
+        ucPixels = (ucGray2BPP[(unsigned char)((c & 0xf0) | (d >> 4))])<<4;
+        ucPixels |= ucGray2BPP[(unsigned char)((c << 4) | (d & 0x0f))];
+        *dest++ = ucPixels;
+    }
+    if (width & 4) // 2 more pixels to do
+    {
+        c = source[x];
+        d = source[x + iPitch];
+        ucPixels = (ucGray2BPP[(unsigned char) ((c & 0xf0) | (d >> 4))]) << 4;
+        ucPixels |= (ucGray2BPP[(unsigned char) ((c << 4) | (d & 0x0f))]);
+        dest[0] = ucPixels;
+    }
+  // Now convert to the requested foreground/background colors
+  // Run in reverse order to re-use the memory
+    count = width >>1;
+    d16 = (uint16_t *)&pPage->ucPixels[0];
+    source = pPage->ucPixels; // byte pointer into 2-bpp pixels
+    ucPixels = source[(count+2)/4];
+    shift = 6-(((count-1) & 3)*2);
+    for (x=count-1; x>=0; x--) {
+       c = (ucPixels >> shift) & 3;
+       shift += 2; // go backwards through the bytes
+       if (shift == 8) {
+          shift = 0;
+          ucPixels = source[(x+3)/4];
+       }
+       // convert 2-bit value into a mixture of FG & BG colors
+       ulAlpha = pConvert[c]; // 0-3 scaled from 0 to 100% in thirds
+       ulPixel = ((ulBG * ulAlpha) + (ulFG * (16-ulAlpha))) >> 4;
+       ulPixel &= ulClrMask; // separate the RGBs
+       usPixel = (uint16_t)ulPixel | (uint16_t)(ulPixel >> 16); // bring G back to RB
+       d16[x] = (uint16_t)((usPixel >> 8) | (usPixel << 8)); // final pixel
+    } // for x
+} /* Scale2Color() */
 //
 // Width is the doubled pixel width
 // Convert 1-bpp into 2-bit grayscale
@@ -723,7 +790,7 @@ static void Scale2Gray4BPP(uint8_t *source, uint8_t *dest, int width, int iPitch
     }
 } /* Scale2Gray4BPP() */
 
-static void TIFFDrawLine(TIFFIMAGE *pPage, int y, int16_t *pCurFlips)
+static int TIFFDrawLine(TIFFIMAGE *pPage, int y, int16_t *pCurFlips)
 {
     int x, len, run, sx, srun;
     uint8_t lBit, rBit, *p;
@@ -735,9 +802,14 @@ static void TIFFDrawLine(TIFFIMAGE *pPage, int y, int16_t *pCurFlips)
     u32ScaleFactor = pPage->window.iScale;
     obgd.iWidth = pPage->iWidth; // original image size
     obgd.iHeight = pPage->iHeight;
-    obgd.iScaledWidth = (pPage->iWidth * u32ScaleFactor) >> 16;
+    obgd.iDestX = pPage->window.dstx;
+    obgd.iDestY = pPage->window.dsty;
+    obgd.iScaledWidth = (pPage->window.iWidth * u32ScaleFactor) >> 16;
+    obgd.iScaledHeight = (pPage->window.iHeight * u32ScaleFactor) >> 16;
     iStart = pPage->window.x;
     
+    if (y >= pPage->window.y + pPage->window.iHeight)
+       return 0; // stop decoding
     if (y == pPage->window.y) // start first line at white
     {
         pPage->u32Accum = 0;
@@ -766,7 +838,7 @@ static void TIFFDrawLine(TIFFIMAGE *pPage, int y, int16_t *pCurFlips)
        }
     pPage->u32Accum += u32ScaleFactor;
     if ((y < pPage->window.y) || (y & 1 && u32ScaleFactor < 0x4000))
-        return; // no need to draw anything, if shrinking too tiny, skip every line
+        return 1; // no need to draw anything, if shrinking too tiny, skip every line
        x = 0;
        while (x < xright) // while the scaled x is within the window bounds
         {
@@ -827,12 +899,17 @@ static void TIFFDrawLine(TIFFIMAGE *pPage, int y, int16_t *pCurFlips)
             if (obgd.ucPixelType == TIFF_PIXEL_2BPP)
             {
                 obgd.pPixels = pPage->ucPixels;
-                Scale2Gray(pPage->ucPixels, obgd.iWidth*2, pPage->iPitch);
+                Scale2Gray(pPage->ucPixels, obgd.iScaledWidth*2, pPage->iPitch);
             }
-            else
+            else if (obgd.ucPixelType == TIFF_PIXEL_4BPP)
             {
                 obgd.pPixels = pPage->window.p4BPP; // need a larger buffer for 4-bit pixels
-                Scale2Gray4BPP(pPage->ucPixels, pPage->window.p4BPP, obgd.iWidth*2, pPage->iPitch);
+                Scale2Gray4BPP(pPage->ucPixels, pPage->window.p4BPP, obgd.iScaledWidth*2, pPage->iPitch);
+            }
+            else // Convert to RGB565 color output
+            {
+               Scale2Color(pPage, obgd.iScaledWidth*2); 
+               obgd.pPixels = pPage->ucPixels;
             }
             // When stretching the image, we may need to repeat lines
             while (pPage->u32Accum >= 0x20000)
@@ -860,14 +937,14 @@ static void TIFFDrawLine(TIFFIMAGE *pPage, int y, int16_t *pCurFlips)
         if (pPage->iPitch < MAX_BUFFERED_PIXELS)
             memset(pPage->ucPixels, 0xff, pPage->iPitch); // start as 0xff (white)
     }
-    
+    return 1; // continue decoding
 } /* TIFFDrawLine() */
 //
 // Decompress the VLC data
 //
 static int Decode(TIFFIMAGE *pPage)
 {
-int i, y, xsize, tot_run, tot_run1 = 0;
+int i, y, bContinue, xsize, tot_run, tot_run1 = 0;
 int32_t sCode;
 int16_t *t1, *pCur, *pRef;
 int16_t *CurFlips, *RefFlips;
@@ -904,10 +981,10 @@ uint8_t *pBuf, *pBufEnd;
    while (pBuf < pBufEnd && pBuf[0] == 0)
    { pBuf++; }
 
-   ulBits = MOTOLONG(pBuf); // load 32 bits to start
-    
+   ulBits = TIFFMOTOLONG(pBuf); // load 32 bits to start
+   bContinue = 1;
    /* Decode the image */
-   for (y=0; y < pPage->iHeight; y++)
+   for (y=0; y < pPage->iHeight && bContinue; y++)
       {
       signed int a0, a0_c, a0_p, b1;
 //g4_restart:
@@ -928,7 +1005,7 @@ uint8_t *pBuf, *pBufEnd;
             {
             pBuf += (ulBitOff >> 3);
             ulBitOff &= 7;
-            ulBits = MOTOLONG(pBuf);
+            ulBits = TIFFMOTOLONG(pBuf);
             }
          if ((int32_t)(ulBits << ulBitOff) < 0)  /* V(0) code */
             {
@@ -1053,7 +1130,7 @@ uint8_t *pBuf, *pBufEnd;
                      {
                      pBuf += (ulBitOff >> 3);
                      ulBitOff &= 7;
-                     ulBits = MOTOLONG(pBuf);
+                     ulBits = TIFFMOTOLONG(pBuf);
                      }
                   lBits = ulBits << ulBitOff;
                   if ((lBits & TOP_BIT) == 0)
@@ -1079,7 +1156,7 @@ uint8_t *pBuf, *pBufEnd;
                         {
                         pBuf += (ulBitOff >> 3);
                         ulBitOff &= 7;
-                        ulBits = MOTOLONG(pBuf);
+                        ulBits = TIFFMOTOLONG(pBuf);
                         }
                      lBits = ulBits << ulBitOff;
                      lBits >>= (REGISTER_WIDTH - 1); /* Turn it into 0/1 for color */
@@ -1111,7 +1188,7 @@ uint8_t *pBuf, *pBufEnd;
                      {
                      pBuf += (ulBitOff >> 3);
                      ulBitOff &= 7;
-                     ulBits = MOTOLONG(pBuf);
+                     ulBits = TIFFMOTOLONG(pBuf);
                      }
                   lBits = ulBits << ulBitOff;
                   if ((lBits & TOP_BIT) == TOP_BIT)
@@ -1145,7 +1222,7 @@ uint8_t *pBuf, *pBufEnd;
       *pCur++ = xsize;
 
         // Draw the current line
-      TIFFDrawLine(pPage, y, CurFlips);
+      bContinue = TIFFDrawLine(pPage, y, CurFlips);
       /*--- Swap current and reference lines ---*/
       t1 = RefFlips;
       RefFlips = CurFlips;
@@ -1156,6 +1233,6 @@ uint8_t *pBuf, *pBufEnd;
 //   if (pPage->iOptions & PIL_CONVERT_IGNORE_ERRORS)
 //      pPage->iError = 0; // suppress errors
 
-   return (pPage->iError == 0);
+   return pPage->iError;
 
 } /* Decode() */

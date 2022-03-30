@@ -30,9 +30,9 @@
 
 /* Defines and variables */
 #define MAX_BUFFERED_PIXELS 1024
-#define FILE_BUF_SIZE 2048
+#define TIFF_FILE_BUF_SIZE 2048
 #define MAX_IMAGE_WIDTH 2600
-#define FILE_HIGHWATER ((FILE_BUF_SIZE * 3) >> 2)
+#define FILE_HIGHWATER ((TIFF_FILE_BUF_SIZE * 3) >> 2)
 #define TIFF_TAG_SIZE 12
 #define MAX_TIFF_TAGS 128
 #define BITDIR_MSB_FIRST     1
@@ -54,7 +54,8 @@ enum {
 enum {
     TIFF_PIXEL_1BPP = 0,
     TIFF_PIXEL_2BPP,
-    TIFF_PIXEL_4BPP
+    TIFF_PIXEL_4BPP,
+    TIFF_PIXEL_16BPP
 };
 
 typedef struct tiff_file_tag
@@ -71,6 +72,7 @@ typedef struct tiff_file_tag
 typedef struct tiff_window_tag
 {
     int x, y; // upper left corner of interest (source pixels)
+    int dstx, dsty; // destination on output
     float fScale;
     uint32_t iScale; // 16:16 fixed scale factor (e.g. 0.5 = 0x8000)
     int iWidth, iHeight; // destination window size (for clipping purposes)
@@ -81,9 +83,10 @@ typedef struct tiff_window_tag
 typedef struct tiff_draw_tag
 {
     int y; // current line
-    int iScaledWidth; // width of the current line
+    int iScaledWidth, iScaledHeight; // width & height of the scaled region
     int iWidth, iHeight; // size of entire image in pixels
-    uint8_t *pPixels; // 1 or 2-bit pixels
+    int iDestX, iDestY; // destination coordinates on output
+    uint8_t *pPixels; // 1, 2 or 16-bit pixels (for drawIcon)
     uint8_t ucPixelType, ucLast;
 } TIFFDRAW;
 
@@ -106,7 +109,7 @@ typedef struct tiff_image_tag
     int iStripSize, iStripOffset;
     int iPitch; // width in bytes of output buffer
     uint32_t u32Accum; // fractional scaling accumulator
-    uint8_t ucCompression, ucPhotometric, ucFillOrder;
+    uint8_t ucCompression, ucPhotometric, ucFillOrder, ucAligned;
     TIFF_READ_CALLBACK *pfnRead;
     TIFF_SEEK_CALLBACK *pfnSeek;
     TIFF_DRAW_CALLBACK *pfnDraw;
@@ -114,10 +117,11 @@ typedef struct tiff_image_tag
     TIFF_CLOSE_CALLBACK *pfnClose;
     TIFFFILE TIFFFile;
     TIFFWINDOW window;
+    uint16_t usFG, usBG; // RGB565 colors for drawIcon()
     int16_t CurFlips[MAX_IMAGE_WIDTH];
     int16_t RefFlips[MAX_IMAGE_WIDTH];
     uint8_t ucPixels[MAX_BUFFERED_PIXELS];
-    uint8_t ucFileBuf[FILE_BUF_SIZE]; // holds temp data and pixel stack
+    uint8_t ucFileBuf[TIFF_FILE_BUF_SIZE]; // holds temp data and pixel stack
 } TIFFIMAGE;
 
 #ifdef __cplusplus
@@ -132,7 +136,8 @@ class TIFFG4
     int openRAW(int iWidth, int iHeight, int iFillOrder, uint8_t *pData, int iDataSize, TIFF_DRAW_CALLBACK *pfnDraw);
     void close();
     void setDrawParameters(float scale, int iPixelType, int iStartX, int iStartY, int iWidth, int iHeight, uint8_t *p4BPPBuf);
-    int decode();
+    int drawIcon(float scale, int iSrcX, int iSrcY, int iSrcWidth, int iSrcHeight, int iDstX, int iDstY, uint16_t usFGColor, uint16_t usBGColor);
+    int decode(int iDstX=0, int iDstY=0);
     int getWidth();
     int getHeight();
     int getLastError();
@@ -157,7 +162,7 @@ int TIFF_openTIFFFile(TIFFIMAGE *pImage, const char *szFilename, TIFF_OPEN_CALLB
 #endif
 
 // Due to unaligned memory causing an exception, we have to do these macros the slow way
-#define MOTOLONG(p) (((*p)<<24UL) + ((*(p+1))<<16UL) + ((*(p+2))<<8UL) + (*(p+3)))
+#define TIFFMOTOLONG(p) (((*p)<<24UL) + ((*(p+1))<<16UL) + ((*(p+2))<<8UL) + (*(p+3)))
 #define TOP_BIT 0x80000000
 #define MAX_VALUE 0xffffffff
 #define LONGWHITECODEMASK 0x2000000
@@ -168,7 +173,7 @@ int TIFF_openTIFFFile(TIFFIMAGE *pImage, const char *szFilename, TIFF_OPEN_CALLB
 #define CLIMBWHITE_NEW(pBuf, ulBitOff, ulBits, sCode) \
     { uint32_t ul; int iLen = 64; sCode = 0; while (iLen > 63) \
     { if (ulBitOff > (REGISTER_WIDTH-17)) \
-      { pBuf += (ulBitOff>>3); ulBitOff &= 7; ulBits = MOTOLONG(pBuf); } \
+      { pBuf += (ulBitOff>>3); ulBitOff &= 7; ulBits = TIFFMOTOLONG(pBuf); } \
       if ((ulBits << ulBitOff) < LONGWHITECODEMASK) \
                   { ul = (ulBits >> ((REGISTER_WIDTH-14) - ulBitOff)) & 0x3fe; ulBitOff += pgm_read_word(&black_l[ul]); iLen = pgm_read_word(&black_l[ul+1]);} \
                 else {ul = (ulBits >> ((REGISTER_WIDTH - 10) - ulBitOff)) & 0x3fe; ulBitOff += pgm_read_word(&white_s[ul]); iLen = pgm_read_word(&white_s[ul+1]);} \
@@ -177,7 +182,7 @@ int TIFF_openTIFFFile(TIFFIMAGE *pImage, const char *szFilename, TIFF_OPEN_CALLB
 #define CLIMBBLACK_NEW(pBuf, ulBitOff, ulBits, sCode) \
     { uint32_t ul; int iLen = 64; sCode = 0; while (iLen > 63) \
     { if (ulBitOff > (REGISTER_WIDTH-15)) \
-      { pBuf += (ulBitOff>>3); ulBitOff &= 7; ulBits = MOTOLONG(pBuf); } \
+      { pBuf += (ulBitOff>>3); ulBitOff &= 7; ulBits = TIFFMOTOLONG(pBuf); } \
       if ((ulBits << ulBitOff) < LONGBLACKCODEMASK) \
          { ul = (ulBits >> ((REGISTER_WIDTH-14) - ulBitOff)) & 0x3fe; ulBitOff += pgm_read_word(&black_l[ul]); iLen = pgm_read_word(&black_l[ul+1]);} \
         else {ul = (ulBits >> ((REGISTER_WIDTH - 7) - ulBitOff)) & 0x7e; ulBitOff += pgm_read_word(&black_s[ul]); iLen = pgm_read_word(&black_s[ul+1]);} \
