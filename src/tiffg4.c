@@ -678,7 +678,7 @@ static void Scale2Color(TIFFIMAGE *pPage, int width)
     ulBG = pPage->usBG | ((uint32_t)pPage->usBG << 16);
     ulFG &= ulClrMask; ulBG &= ulClrMask;
 
-    pConvert = (pPage->window.iScale >= 65536) ? ulClrConvert1 : ulClrConvert0;
+    pConvert = (pPage->window.iScale >= 65536) ? (uint32_t *)ulClrConvert1 : (uint32_t *)ulClrConvert0;
     dest = source = pPage->ucPixels; // write the new pixels over the old to save memory
 // Convert everything to 2-bpp grayscale first
     for (x=0; x<width/8; x+=2) /* Convert a pair of lines to gray */
@@ -806,6 +806,7 @@ static int TIFFDrawLine(TIFFIMAGE *pPage, int y, int16_t *pCurFlips)
     obgd.iDestY = pPage->window.dsty;
     obgd.iScaledWidth = (pPage->window.iWidth * u32ScaleFactor) >> 16;
     obgd.iScaledHeight = (pPage->window.iHeight * u32ScaleFactor) >> 16;
+    obgd.pUser = pPage->pUser;
     iStart = pPage->window.x;
     
     if (y >= pPage->window.y + pPage->window.iHeight)

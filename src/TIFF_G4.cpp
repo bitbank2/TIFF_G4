@@ -117,6 +117,14 @@ int TIFFG4::drawIcon(float scale, int iSrcX, int iSrcY, int iSrcWidth, int iSrcH
     return Decode(&_tiff);
 } /* drawIcon() */
 
+//
+// set draw callback user pointer variable
+//
+void TIFFG4::setUserPointer(void *p)
+{
+    _tiff.pUser = p;
+}
+
 void TIFFG4::setDrawParameters(float scale, int iPixelType, int iStartX, int iStartY, int iWidth, int iHeight, uint8_t *p4BPPBuf)
 {
     _tiff.window.iScale = (uint32_t)(scale * 65536.0f); // convert to uint32

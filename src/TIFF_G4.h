@@ -86,6 +86,7 @@ typedef struct tiff_draw_tag
     int iScaledWidth, iScaledHeight; // width & height of the scaled region
     int iWidth, iHeight; // size of entire image in pixels
     int iDestX, iDestY; // destination coordinates on output
+    void *pUser; // user pointer
     uint8_t *pPixels; // 1, 2 or 16-bit pixels (for drawIcon)
     uint8_t ucPixelType, ucLast;
 } TIFFDRAW;
@@ -117,6 +118,7 @@ typedef struct tiff_image_tag
     TIFF_CLOSE_CALLBACK *pfnClose;
     TIFFFILE TIFFFile;
     TIFFWINDOW window;
+    void *pUser;
     uint16_t usFG, usBG; // RGB565 colors for drawIcon()
     int16_t CurFlips[MAX_IMAGE_WIDTH];
     int16_t RefFlips[MAX_IMAGE_WIDTH];
@@ -137,6 +139,7 @@ class TIFFG4
     void close();
     void setDrawParameters(float scale, int iPixelType, int iStartX, int iStartY, int iWidth, int iHeight, uint8_t *p4BPPBuf);
     int drawIcon(float scale, int iSrcX, int iSrcY, int iSrcWidth, int iSrcHeight, int iDstX, int iDstY, uint16_t usFGColor, uint16_t usBGColor);
+    void setUserPointer(void *p);
     int decode(int iDstX=0, int iDstY=0);
     int getWidth();
     int getHeight();
