@@ -29,9 +29,16 @@
 //
 
 /* Defines and variables */
+#ifdef __AVR__
+// Allow for small images to decode on constrained devices
+#define MAX_BUFFERED_PIXELS 32
+#define TIFF_FILE_BUF_SIZE 128
+#define MAX_IMAGE_WIDTH 200
+#else
 #define MAX_BUFFERED_PIXELS 1024
 #define TIFF_FILE_BUF_SIZE 2048
 #define MAX_IMAGE_WIDTH 2600
+#endif
 #define FILE_HIGHWATER ((TIFF_FILE_BUF_SIZE * 3) >> 2)
 #define TIFF_TAG_SIZE 12
 #define MAX_TIFF_TAGS 128
@@ -165,7 +172,7 @@ int TIFF_openTIFFFile(TIFFIMAGE *pImage, const char *szFilename, TIFF_OPEN_CALLB
 #endif
 
 // Due to unaligned memory causing an exception, we have to do these macros the slow way
-#define TIFFMOTOLONG(p) (((*p)<<24UL) + ((*(p+1))<<16UL) + ((*(p+2))<<8UL) + (*(p+3)))
+#define TIFFMOTOLONG(p) (((uint32_t)(*p)<<24UL) + ((uint32_t)(*(p+1))<<16UL) + ((uint32_t)(*(p+2))<<8UL) + (uint32_t)(*(p+3)))
 #define TOP_BIT 0x80000000
 #define MAX_VALUE 0xffffffff
 #define LONGWHITECODEMASK 0x2000000
