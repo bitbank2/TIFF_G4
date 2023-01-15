@@ -58,7 +58,8 @@ enum {
     TIFF_INVALID_PARAMETER,
     TIFF_DECODE_ERROR,
     TIFF_UNSUPPORTED_FEATURE,
-    TIFF_INVALID_FILE
+    TIFF_INVALID_FILE,
+    TIFF_NEED_MORE_DATA
 };
 //
 // Output pixel types
@@ -124,6 +125,8 @@ typedef struct tiff_image_tag
     int iStripSize, iStripOffset;
     int iPitch; // width in bytes of output buffer
     uint32_t u32Accum; // fractional scaling accumulator
+    uint32_t ulBitOff, ulBits; // vlc decode variables
+    uint8_t *pBuf; // current buffer pointer
     uint8_t ucCompression, ucPhotometric, ucFillOrder, ucAligned;
     TIFF_READ_CALLBACK *pfnRead;
     TIFF_SEEK_CALLBACK *pfnSeek;
@@ -134,6 +137,7 @@ typedef struct tiff_image_tag
     TIFFWINDOW window;
     void *pUser;
     uint16_t usFG, usBG; // RGB565 colors for drawIcon()
+    int16_t *pCur, *pRef; // current state of current vs reference flips
     int16_t CurFlips[MAX_IMAGE_WIDTH];
     int16_t RefFlips[MAX_IMAGE_WIDTH];
     uint8_t ucPixels[MAX_BUFFERED_PIXELS];
@@ -155,6 +159,9 @@ class TIFFG4
     int drawIcon(float scale, int iSrcX, int iSrcY, int iSrcWidth, int iSrcHeight, int iDstX, int iDstY, uint16_t usFGColor, uint16_t usBGColor);
     void setUserPointer(void *p);
     int decode(int iDstX=0, int iDstY=0);
+    int decodeInc(int bHasMoreData);
+    void decodeIncBegin(int iWidth, int iHeight, uint8_t ucFillOrder, TIFF_DRAW_CALLBACK *pfnDraw);
+    int addData(uint8_t *pData, int iLen);
     int getWidth();
     int getHeight();
     int getLastError();
@@ -173,9 +180,12 @@ int TIFF_openTIFFFile(TIFFIMAGE *pImage, const char *szFilename, TIFF_OPEN_CALLB
     void TIFF_close(TIFFIMAGE *pImage);
     void TIFF_setDrawParameters(TIFFIMAGE *pImage, float scale, int iPixelType, int iStartX, int iStartY, int iWidth, int iHeight, uint8_t *p4BPPBuf);
     int TIFF_decode(TIFFIMAGE *pImage);
+    void TIFF_decodeIncBegin(TIFFIMAGE *pPage, int iWidth, int iHeight, uint8_t ucFillOrder, TIFF_DRAW_CALLBACK *pfnDraw);
+    int TIFF_decodeInc(TIFFIMAGE *pImage, int bHasMoreData);
     int TIFF_getWidth(TIFFIMAGE *pImage);
     int TIFF_getHeight(TIFFIMAGE *pImage);
     int TIFF_getLastError(TIFFIMAGE *pImage);
+    int TIFF_addData(TIFFIMAGE *pPage, uint8_t *pData, int iLen);
 #endif
 
 // Due to unaligned memory causing an exception, we have to do these macros the slow way

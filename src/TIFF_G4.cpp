@@ -65,6 +65,21 @@ int TIFFG4::openRAW(int iWidth, int iHeight, int iFillOrder, uint8_t *pData, int
     return 1;
 } /* openRAW() */
 
+void TIFFG4::decodeIncBegin(int iWidth, int iHeight, uint8_t ucFillOrder, TIFF_DRAW_CALLBACK *pfnDraw)
+{
+    Decode_Inc_Begin(&_tiff, iWidth, iHeight, ucFillOrder, pfnDraw);
+} /* decodeIncBegin() */
+
+int TIFFG4::decodeInc(int bHasMoreData)
+{
+    return Decode_Inc(&_tiff, bHasMoreData);
+} /* decodeInc() */
+
+int TIFFG4::addData(uint8_t *pData, int iLen)
+{
+   return Add_Data(&_tiff, pData, iLen);
+} /* addData() */
+
 int TIFFG4::getLastError()
 {
     return _tiff.iError;

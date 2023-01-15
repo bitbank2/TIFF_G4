@@ -19,6 +19,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
+#define REENTRANT
+
 #include "TIFF_G4.h"
 
 // forward references
@@ -26,6 +28,9 @@ static int TIFFInit(TIFFIMAGE *pTIFF);
 static int TIFFParseInfo(TIFFIMAGE *pPage);
 static void TIFFGetMoreData(TIFFIMAGE *pPage);
 static int Decode(TIFFIMAGE *pImage);
+static int Decode_Inc(TIFFIMAGE *pPage, int bHasMoreData);
+static int Add_Data(TIFFIMAGE *pPage, uint8_t *pData, int iLen);
+static void Decode_Inc_Begin(TIFFIMAGE *pPage, int iWidth, int iHeight, uint8_t ucFillOrder, TIFF_DRAW_CALLBACK *pfnDraw);
 
 // Scale to gray tables
 //
@@ -420,6 +425,19 @@ int TIFF_decode(TIFFIMAGE *pImage)
     return Decode(pImage);
 } /* decode() */
 
+void TIFF_decodeIncBegin(TIFFIMAGE *pPage, int iWidth, int iHeight, uint8_t ucFillOrder, TIFF_DRAW_CALLBACK *pfnDraw)
+{
+    Decode_Inc_Begin(pPage, iWidth, iHeight, ucFillOrder, pfnDraw);
+}
+
+int TIFF_decodeInc(TIFFIMAGE *pImage, int bHasMoreData)
+{
+    return Decode_Inc(pImage, bHasMoreData);
+}
+int TIFF_addData(TIFFIMAGE *pPage, uint8_t *pData, int iLen)
+{
+    return Add_Data(pPage, pData, iLen);
+}
 int TIFF_getWidth(TIFFIMAGE *pImage)
 {
     return pImage->iWidth;
@@ -940,300 +958,422 @@ static int TIFFDrawLine(TIFFIMAGE *pPage, int y, int16_t *pCurFlips)
     }
     return 1; // continue decoding
 } /* TIFFDrawLine() */
+
+//
+// Initialize internal structures to decode the image
+//
+static void Decode_Begin(TIFFIMAGE *pPage)
+{
+    int i, xsize;
+    int16_t *CurFlips, *RefFlips;
+    uint8_t *pBuf, *pBufEnd;
+    
+    xsize = pPage->iWidth;
+    
+    RefFlips = pPage->RefFlips;
+    CurFlips = pPage->CurFlips;
+    
+    /* Seed the current and reference line with XSIZE for V(0) codes */
+     for (i=0; i<xsize-2; i++)
+     {
+         RefFlips[i] = xsize;
+         CurFlips[i] = xsize;
+     }
+    /* Prefill both current and reference lines with 7fff to prevent it from
+       walking off the end if the data gets bunged and the current X is > XSIZE
+       3-16-94 */
+     CurFlips[i] = RefFlips[i] = 0x7fff;
+     CurFlips[i+1] = RefFlips[i+1] = 0x7fff;
+    
+    pPage->pCur = CurFlips;
+    pPage->pRef = RefFlips;
+
+    pBuf = pPage->pBuf = pPage->ucFileBuf;
+//
+// Some files may have leading 0's that would confuse the decoder
+// Valid G4 data can't begin with a 0
+//
+    pBufEnd = &pBuf[128]; // DEBUG
+    while (pBuf < pBufEnd && pBuf[0] == 0)
+    { pBuf++; }
+    
+    pPage->pBuf = pBuf;
+    pPage->ulBits = TIFFMOTOLONG(pBuf); // load 32 bits to start
+    pPage->ulBitOff = pPage->iVLCOff = 0;
+
+} /* Decode_Begin() */
+//
+// Decode a single line of G4 data
+//
+int Decode_one_line(TIFFIMAGE *pPage)
+{
+    signed int a0, a0_c, a0_p, b1;
+    int16_t *pCur, *pRef, *RefFlips, *CurFlips;
+    int xsize, tot_run, tot_run1 = 0;
+    int32_t sCode;
+    uint32_t lBits;
+    uint32_t ulBits, ulBitOff;
+    uint8_t *pBuf, *pBufEnd;
+
+    pCur = CurFlips = pPage->pCur;
+    pRef = RefFlips = pPage->pRef;
+    ulBits = pPage->ulBits;
+    ulBitOff = pPage->ulBitOff;
+    pBuf = pPage->pBuf;
+    pBufEnd = &pBuf[FILE_HIGHWATER];
+
+    a0 = -1;
+    a0_c = 0; /* start just to left and white */
+    xsize = pPage->iWidth;
+    
+    while (a0 < xsize)   /* Decode this line */
+       {
+       if (ulBitOff > (REGISTER_WIDTH-8)) // need at least 7 unused bits
+          {
+          pBuf += (ulBitOff >> 3);
+          ulBitOff &= 7;
+          ulBits = TIFFMOTOLONG(pBuf);
+          }
+       if ((int32_t)(ulBits << ulBitOff) < 0)  /* V(0) code */
+          {
+          a0 = *pRef++;
+          ulBitOff++; // 1 bit
+          a0_c = 1 - a0_c; /* color change */
+          *pCur++ = a0;
+          }
+       else /* Slow method */
+          {
+          lBits = (ulBits >> ((REGISTER_WIDTH - 8) - ulBitOff)) & 0xfe; /* Only the first 7 bits are useful */
+          sCode = pgm_read_byte(&code_table[lBits]); /* Get the code word */
+          ulBitOff += pgm_read_byte(&code_table[lBits+1]); /* Get the code length */
+          switch (sCode)
+             {
+             case 1: /* V(-1) */
+             case 2: /* V(-2) */
+             case 3: /* V(-3) */
+                a0 = *pRef - sCode;  /* A0 = B1 - x */
+                *pCur++ = a0;
+                if (pRef == RefFlips)
+                   pRef += 2;
+                pRef--;
+                while (a0 >= *pRef)
+                   pRef += 2;
+                a0_c = 1-a0_c; /* color change */
+                break;
+
+             case 0x11: /* V(1) */
+             case 0x12: /* V(2) */
+             case 0x13: /* V(3) */
+                a0 = *pRef++;   /* A0 = B1 */
+                b1 = a0;
+                a0 += sCode & 7;      /* A0 = B1 + x */
+                if (b1 != xsize && a0 < xsize)
+                   {
+                   while (a0 >= *pRef)
+                      pRef += 2;
+                   }
+                if (a0 > xsize)
+                   a0 = xsize;
+                a0_c = 1-a0_c; /* color change */
+                *pCur++ = a0;
+                break;
+
+             case 0x20: /* Horizontal codes */
+                a0_p = a0;
+                if (a0 < 0)
+                   a0_p = 0;
+                if (a0_c) /* Black case */
+                   {
+                   CLIMBBLACK_NEW(pBuf, ulBitOff, ulBits, sCode)
+//                     sCode = ClimbBlack(&bb);
+                   if (sCode < 0)
+                      {
+                      pPage->iError = TIFF_DECODE_ERROR;
+                      goto pilreadg4z;
+                      }
+                   tot_run = sCode;
+                   CLIMBWHITE_NEW(pBuf, ulBitOff, ulBits, sCode)
+//                     sCode = ClimbWhite(&bb);
+                   if (sCode < 0)
+                      {
+                      pPage->iError = TIFF_DECODE_ERROR;
+                      goto pilreadg4z;
+                      }
+                   tot_run1 = sCode;
+                   }
+                else  /* White case */
+                   {
+                    CLIMBWHITE_NEW(pBuf, ulBitOff, ulBits, sCode)
+//                     sCode = ClimbWhite(&bb);
+                   if (sCode < 0)
+                      {
+                      pPage->iError = TIFF_DECODE_ERROR;
+                      goto pilreadg4z;
+                      }
+                   tot_run = sCode;
+                   CLIMBBLACK_NEW(pBuf, ulBitOff, ulBits, sCode)
+//                     sCode = ClimbBlack(&bb);
+                   if (sCode < 0)
+                      {
+                      pPage->iError = TIFF_DECODE_ERROR;
+                      goto pilreadg4z;
+                      }
+                   tot_run1 = sCode;
+                   }
+                a0 = a0_p + tot_run;
+                *pCur++ = a0;
+                a0 += tot_run1;
+                if (a0 < xsize)
+                   while (a0 >= *pRef)
+                      pRef += 2;
+                *pCur++ = a0;
+                break;
+
+             case 0x30: /* Pass code */
+                pRef++;         /* A0 = B2, iRef+=2 */
+                a0 = *pRef++;
+                break;
+             case 0x40: /* Uncompressed mode */
+                lBits = ulBits << ulBitOff;
+                lBits &= 0xffc00000;
+                if (lBits != 0x3c00000)  /* If not entering uncompressed mode */
+                   {
+                   pPage->iError = TIFF_DECODE_ERROR;
+                   goto pilreadg4z;
+                   }
+                ulBitOff += 10;
+                tot_run = 0; /* Current run length */
+                if ((ulBits << ulBitOff) & TOP_BIT)
+                   goto blkst; /* Black start */
+          whtst:
+                if (/*iCur >= xsize || */pBuf > pBufEnd)    /* Something is wrong, stop */
+                   {
+                   pPage->iError = TIFF_DECODE_ERROR;
+                   goto pilreadg4z;
+                   }
+                tot_run1++;
+                ulBitOff++;
+                if (ulBitOff > (REGISTER_WIDTH - 8))
+                   {
+                   pBuf += (ulBitOff >> 3);
+                   ulBitOff &= 7;
+                   ulBits = TIFFMOTOLONG(pBuf);
+                   }
+                lBits = ulBits << ulBitOff;
+                if ((lBits & TOP_BIT) == 0)
+                   goto whtst;
+      /* Check for end of mode stuff */
+                if (tot_run1 == 5)
+                   {
+                   tot_run += 5;
+                   tot_run1 = -1;
+                   goto whtst; /* Keep looking for white */
+                   }
+                if (tot_run1 >= 6) /* End of uncomp data */
+                   {
+                   tot_run += tot_run1 - 6; /* Get the number of extra 0's */
+                   if (tot_run) /* Something to store? */
+                      {
+                      a0 += tot_run;
+                      *pCur++ = a0;
+                      }
+   /* Get the last bit to see what the next color is */
+                   ulBitOff++;
+                   if (ulBitOff > (REGISTER_WIDTH - 8))
+                      {
+                      pBuf += (ulBitOff >> 3);
+                      ulBitOff &= 7;
+                      ulBits = TIFFMOTOLONG(pBuf);
+                      }
+                   lBits = ulBits << ulBitOff;
+                   lBits >>= (REGISTER_WIDTH - 1); /* Turn it into 0/1 for color */
+                   if ((signed int)lBits != a0_c) /* If color changed, bump up ref line */
+                      pRef++;
+                   a0_c = sCode; /* This is the new color */
+/* Re-align reference line with new position */
+                   while (*pRef <= a0) // && iRef <= xsize) - DEBUG
+                      pRef += 2;
+                   break; /* Continue normal G4 decoding */
+                   }
+                else
+                   {
+                   tot_run += tot_run1;
+                   a0 += tot_run; /* Add to current x */
+                   *pCur++ = a0;
+                   tot_run = 0;
+                   tot_run1 = 0;
+                   }
+          blkst:
+                if (/*iCur >= xsize || */ pBuf > pBufEnd)    /* Something is wrong, stop */
+                   {
+                   pPage->iError = TIFF_DECODE_ERROR;
+                   goto pilreadg4z;
+                   }
+                tot_run++;
+                ulBitOff++;
+                if (ulBitOff > (REGISTER_WIDTH - 8))
+                   {
+                   pBuf += (ulBitOff >> 3);
+                   ulBitOff &= 7;
+                   ulBits = TIFFMOTOLONG(pBuf);
+                   }
+                lBits = ulBits << ulBitOff;
+                if ((lBits & TOP_BIT) == TOP_BIT)
+                   goto blkst;
+                a0 += tot_run;
+                *pCur++ = a0;
+                tot_run = 0;
+                goto whtst;
+             default: /* possible ERROR! */
+                /* A G4 page can end early with 2 EOL's */
+                 CLIMBWHITE_NEW(pBuf, ulBitOff, ulBits, sCode)
+//                  sCode = ClimbWhite(&bb);
+                if (sCode != EOL)
+                   {
+                   pPage->iError = TIFF_DECODE_ERROR;
+                   goto pilreadg4z;
+                   }
+                 CLIMBWHITE_NEW(pBuf, ulBitOff, ulBits, sCode)
+//                  sCode = ClimbWhite(&bb);
+                if (sCode != EOL)
+                   {
+                   pPage->iError = TIFF_DECODE_ERROR;
+                   goto pilreadg4z;
+                   }
+                goto pilreadg4z; /* Leave gracefully */
+             } /* switch */
+          } /* Slow climb */
+       }
+    /*--- Convert flips data into run lengths ---*/
+    *pCur++ = xsize;  /* Terminate the line properly */
+    *pCur++ = xsize;
+pilreadg4z:
+    // Save the current VLC decoder state
+    pPage->ulBits = ulBits;
+    pPage->ulBitOff = ulBitOff;
+    pPage->pBuf = pBuf;
+    return pPage->iError;
+} /* Decode_one_line() */
+//
+// Add compressed data to the internal buffer
+// returns amount of data space available if pData is NULL
+// otherwise returns 0 for success, -1 for failure
+//
+static int Add_Data(TIFFIMAGE *pPage, uint8_t *pData, int iLen)
+{
+    int i;
+    
+    if (pPage == NULL) return -1;
+    i = (int)(&pPage->ucFileBuf[pPage->iVLCSize] - pPage->pBuf); // amount of data remaining
+    if (pData == NULL) { // calculate how much room there is for new data
+        return (TIFF_FILE_BUF_SIZE - i);
+    }
+    if (i < 0) { // something went wrong
+        return -1;
+    }
+    if ((iLen + i) < TIFF_FILE_BUF_SIZE) { // new data fits
+        memmove(pPage->ucFileBuf, pPage->pBuf, i); // move unused data to start of buffer
+        pPage->iVLCSize -= (int)(pPage->pBuf - pPage->ucFileBuf); // subtract already-decoded data from current total
+        pPage->pBuf = pPage->ucFileBuf; // reset pointer to start of buffer
+        memcpy(&pPage->ucFileBuf[pPage->iVLCSize], pData, iLen); // copy new data on the end of the existing data
+        if (pPage->ucFillOrder == BITDIR_LSB_FIRST)
+        {
+            for (i=0; i<iLen; i++)
+            {
+                uint8_t c = pPage->ucFileBuf[i+pPage->iVLCSize];
+                pPage->ucFileBuf[i+pPage->iVLCSize] = pgm_read_byte(&ucMirror[c]);
+            }
+        }
+        pPage->iVLCSize += iLen; // adjust total number of compressed bytes in the buffer
+        // make sure we load some data into the state variables
+        pPage->ulBits = TIFFMOTOLONG(pPage->pBuf);
+        return TIFF_SUCCESS; // success
+    }
+    return -1; // the new data is too large
+} /* Add_Data() */
+
+static void Decode_Inc_Begin(TIFFIMAGE *pPage, int iWidth, int iHeight, uint8_t ucFillOrder, TIFF_DRAW_CALLBACK *pfnDraw)
+{
+    pPage->iWidth = iWidth;
+    pPage->iHeight = iHeight;
+    pPage->ucFillOrder = ucFillOrder;
+    pPage->pfnDraw = pfnDraw;
+    pPage->y = 0;
+    pPage->iError = 0;
+    pPage->u32Accum = 0;
+    memset(&pPage->window, 0, sizeof(pPage->window));
+    pPage->window.iScale = 65536;
+    pPage->window.iWidth = iWidth;
+    pPage->window.iHeight = iHeight;
+    Decode_Begin(pPage);
+    pPage->pBuf = pPage->ucFileBuf;
+    pPage->iVLCSize = 0;
+} /* Decode_Inc_Begin() */
+
+//
+// Decode the image incrementally - return each time more data is needed
+//
+static int Decode_Inc(TIFFIMAGE *pPage, int bHasMoreData)
+{
+    int rc = TIFF_SUCCESS;
+    int16_t *t1;
+    uint8_t *pBufEnd;
+    
+    pBufEnd = &pPage->ucFileBuf[pPage->iVLCSize] - (pPage->iWidth/4); // set limit at 2x uncompressed line size
+    while (rc == TIFF_SUCCESS && pPage->y < pPage->iHeight) {
+        if (pPage->pBuf > pBufEnd && bHasMoreData) // we need more compressed data
+            return TIFF_NEED_MORE_DATA;
+
+        rc = Decode_one_line(pPage);
+        if (rc == TIFF_SUCCESS) {
+            // Draw the current line and pass to callback
+            TIFFDrawLine(pPage, pPage->y, pPage->pCur); // y is incremented in here
+            // Swap current and reference lines
+            t1 = pPage->pRef;
+            pPage->pRef = pPage->pCur;
+            pPage->pCur = t1;
+        }
+    } // while there's enough data and decoding succeeds
+    return rc;
+} /* Decode_Inc() */
 //
 // Decompress the VLC data
 //
 static int Decode(TIFFIMAGE *pPage)
 {
-int i, y, bContinue, xsize, tot_run, tot_run1 = 0;
-int32_t sCode;
-int16_t *t1, *pCur, *pRef;
-int16_t *CurFlips, *RefFlips;
-uint32_t lBits;
-uint32_t ulBits, ulBitOff;
-uint8_t *pBuf, *pBufEnd;
-
-    xsize = pPage->iWidth; /* For performance reasons */
-    CurFlips = pPage->CurFlips;
-    RefFlips = pPage->RefFlips;
+    int y, rc, bContinue, xsize;
+    uint8_t *pBufEnd;
+    int16_t *t1;
     
-   /* Seed the current and reference line with XSIZE for V(0) codes */
-    for (i=0; i<xsize-2; i++)
-    {
-        RefFlips[i] = xsize;
-        CurFlips[i] = xsize;
-    }
-   /* Prefill both current and reference lines with 7fff to prevent it from
-      walking off the end if the data gets bunged and the current X is > XSIZE
-      3-16-94 */
-    CurFlips[i] = RefFlips[i] = 0x7fff;
-    CurFlips[i+1] = RefFlips[i+1] = 0x7fff;
-
+    xsize = pPage->iWidth; /* For performance reasons */
+    
     pPage->iVLCSize = pPage->iVLCOff = 0;
     (*pPage->pfnSeek)(&pPage->TIFFFile, pPage->iStripOffset); // start of data
     TIFFGetMoreData(pPage); // read first block of compressed data
-    pBuf = pPage->ucFileBuf;
-    pBufEnd = &pBuf[FILE_HIGHWATER];
-    ulBitOff = 0;
-//
-// Some files may have leading 0's that would confuse the decoder
-// Valid G4 data can't begin with a 0
-//
-   while (pBuf < pBufEnd && pBuf[0] == 0)
-   { pBuf++; }
-
-   ulBits = TIFFMOTOLONG(pBuf); // load 32 bits to start
+    Decode_Begin(pPage);
+    pPage->pBuf = pPage->ucFileBuf;
+    pBufEnd = &pPage->ucFileBuf[FILE_HIGHWATER];
+    
    bContinue = 1;
    /* Decode the image */
    for (y=0; y < pPage->iHeight && bContinue; y++)
       {
-      signed int a0, a0_c, a0_p, b1;
 //g4_restart:
 //      iCur = iRef = 0; /* Point to start of current and reference line */
-      pCur = CurFlips;
-      pRef = RefFlips;
-      a0 = -1;
-      a0_c = 0; /* start just to left and white */
-      if (pBuf >= pBufEnd) // time to read more data
+      if (pPage->pBuf >= pBufEnd) // time to read more data
       {
-          pPage->iVLCOff = (int)(pBuf - pPage->ucFileBuf);
+          pPage->iVLCOff = (int)(pPage->pBuf - pPage->ucFileBuf);
           TIFFGetMoreData(pPage);
-          pBuf = pPage->ucFileBuf;
+          pPage->pBuf = pPage->ucFileBuf;
       }
-      while (a0 < xsize)   /* Decode this line */
-         {
-         if (ulBitOff > (REGISTER_WIDTH-8)) // need at least 7 unused bits
-            {
-            pBuf += (ulBitOff >> 3);
-            ulBitOff &= 7;
-            ulBits = TIFFMOTOLONG(pBuf);
-            }
-         if ((int32_t)(ulBits << ulBitOff) < 0)  /* V(0) code */
-            {
-            a0 = *pRef++;
-            ulBitOff++; // 1 bit
-            a0_c = 1 - a0_c; /* color change */
-            *pCur++ = a0;
-            }
-         else /* Slow method */
-            {
-            lBits = (ulBits >> ((REGISTER_WIDTH - 8) - ulBitOff)) & 0xfe; /* Only the first 7 bits are useful */
-            sCode = pgm_read_byte(&code_table[lBits]); /* Get the code word */
-            ulBitOff += pgm_read_byte(&code_table[lBits+1]); /* Get the code length */
-            switch (sCode)
-               {
-               case 1: /* V(-1) */
-               case 2: /* V(-2) */
-               case 3: /* V(-3) */
-                  a0 = *pRef - sCode;  /* A0 = B1 - x */
-                  *pCur++ = a0;
-                  if (pRef == RefFlips)
-                     pRef += 2;
-                  pRef--;
-                  while (a0 >= *pRef)
-                     pRef += 2;
-                  a0_c = 1-a0_c; /* color change */
-                  break;
+      rc = Decode_one_line(pPage);
 
-               case 0x11: /* V(1) */
-               case 0x12: /* V(2) */
-               case 0x13: /* V(3) */
-                  a0 = *pRef++;   /* A0 = B1 */
-                  b1 = a0;
-                  a0 += sCode & 7;      /* A0 = B1 + x */
-                  if (b1 != xsize && a0 < xsize)
-                     {
-                     while (a0 >= *pRef)
-                        pRef += 2;
-                     }
-                  if (a0 > xsize)
-                     a0 = xsize;
-                  a0_c = 1-a0_c; /* color change */
-                  *pCur++ = a0;
-                  break;
-
-               case 0x20: /* Horizontal codes */
-                  a0_p = a0;
-                  if (a0 < 0)
-                     a0_p = 0;
-                  if (a0_c) /* Black case */
-                     {
-                     CLIMBBLACK_NEW(pBuf, ulBitOff, ulBits, sCode)
-//                     sCode = ClimbBlack(&bb);
-                     if (sCode < 0)
-                        {
-                        pPage->iError = TIFF_DECODE_ERROR;
-                        goto pilreadg4z;
-                        }
-                     tot_run = sCode;
-                     CLIMBWHITE_NEW(pBuf, ulBitOff, ulBits, sCode)
-//                     sCode = ClimbWhite(&bb);
-                     if (sCode < 0)
-                        {
-                        pPage->iError = TIFF_DECODE_ERROR;
-                        goto pilreadg4z;
-                        }
-                     tot_run1 = sCode;
-                     }
-                  else  /* White case */
-                     {
-                      CLIMBWHITE_NEW(pBuf, ulBitOff, ulBits, sCode)
-//                     sCode = ClimbWhite(&bb);
-                     if (sCode < 0)
-                        {
-                        pPage->iError = TIFF_DECODE_ERROR;
-                        goto pilreadg4z;
-                        }
-                     tot_run = sCode;
-                     CLIMBBLACK_NEW(pBuf, ulBitOff, ulBits, sCode)
-//                     sCode = ClimbBlack(&bb);
-                     if (sCode < 0)
-                        {
-                        pPage->iError = TIFF_DECODE_ERROR;
-                        goto pilreadg4z;
-                        }
-                     tot_run1 = sCode;
-                     }
-                  a0 = a0_p + tot_run;
-                  *pCur++ = a0;
-                  a0 += tot_run1;
-                  if (a0 < xsize)
-                     while (a0 >= *pRef)
-                        pRef += 2;
-                  *pCur++ = a0;
-                  break;
-
-               case 0x30: /* Pass code */
-                  pRef++;         /* A0 = B2, iRef+=2 */
-                  a0 = *pRef++;
-                  break;
-               case 0x40: /* Uncompressed mode */
-                  lBits = ulBits << ulBitOff;
-                  lBits &= 0xffc00000;
-                  if (lBits != 0x3c00000)  /* If not entering uncompressed mode */
-                     {
-                     pPage->iError = TIFF_DECODE_ERROR;
-                     goto pilreadg4z;
-                     }
-                  ulBitOff += 10;
-                  tot_run = 0; /* Current run length */
-                  if ((ulBits << ulBitOff) & TOP_BIT)
-                     goto blkst; /* Black start */
-            whtst:
-                  if (/*iCur >= xsize || */pBuf > pBufEnd)    /* Something is wrong, stop */
-                     {
-                     pPage->iError = TIFF_DECODE_ERROR;
-                     goto pilreadg4z;
-                     }
-                  tot_run1++;
-                  ulBitOff++;
-                  if (ulBitOff > (REGISTER_WIDTH - 8))
-                     {
-                     pBuf += (ulBitOff >> 3);
-                     ulBitOff &= 7;
-                     ulBits = TIFFMOTOLONG(pBuf);
-                     }
-                  lBits = ulBits << ulBitOff;
-                  if ((lBits & TOP_BIT) == 0)
-                     goto whtst;
-        /* Check for end of mode stuff */
-                  if (tot_run1 == 5)
-                     {
-                     tot_run += 5;
-                     tot_run1 = -1;
-                     goto whtst; /* Keep looking for white */
-                     }
-                  if (tot_run1 >= 6) /* End of uncomp data */
-                     {
-                     tot_run += tot_run1 - 6; /* Get the number of extra 0's */
-                     if (tot_run) /* Something to store? */
-                        {
-                        a0 += tot_run;
-                        *pCur++ = a0;
-                        }
-     /* Get the last bit to see what the next color is */
-                     ulBitOff++;
-                     if (ulBitOff > (REGISTER_WIDTH - 8))
-                        {
-                        pBuf += (ulBitOff >> 3);
-                        ulBitOff &= 7;
-                        ulBits = TIFFMOTOLONG(pBuf);
-                        }
-                     lBits = ulBits << ulBitOff;
-                     lBits >>= (REGISTER_WIDTH - 1); /* Turn it into 0/1 for color */
-                     if ((signed int)lBits != a0_c) /* If color changed, bump up ref line */
-                        pRef++;
-                     a0_c = sCode; /* This is the new color */
-/* Re-align reference line with new position */
-                     while (*pRef <= a0) // && iRef <= xsize) - DEBUG
-                        pRef += 2;
-                     break; /* Continue normal G4 decoding */
-                     }
-                  else
-                     {
-                     tot_run += tot_run1;
-                     a0 += tot_run; /* Add to current x */
-                     *pCur++ = a0;
-                     tot_run = 0;
-                     tot_run1 = 0;
-                     }
-            blkst:
-                  if (/*iCur >= xsize || */ pBuf > pBufEnd)    /* Something is wrong, stop */
-                     {
-                     pPage->iError = TIFF_DECODE_ERROR;
-                     goto pilreadg4z;
-                     }
-                  tot_run++;
-                  ulBitOff++;
-                  if (ulBitOff > (REGISTER_WIDTH - 8))
-                     {
-                     pBuf += (ulBitOff >> 3);
-                     ulBitOff &= 7;
-                     ulBits = TIFFMOTOLONG(pBuf);
-                     }
-                  lBits = ulBits << ulBitOff;
-                  if ((lBits & TOP_BIT) == TOP_BIT)
-                     goto blkst;
-                  a0 += tot_run;
-                  *pCur++ = a0;
-                  tot_run = 0;
-                  goto whtst;
-               default: /* possible ERROR! */
-                  /* A G4 page can end early with 2 EOL's */
-                   CLIMBWHITE_NEW(pBuf, ulBitOff, ulBits, sCode)
-//                  sCode = ClimbWhite(&bb);
-                  if (sCode != EOL)
-                     {
-                     pPage->iError = TIFF_DECODE_ERROR;
-                     goto pilreadg4z;
-                     }
-                   CLIMBWHITE_NEW(pBuf, ulBitOff, ulBits, sCode)
-//                  sCode = ClimbWhite(&bb);
-                  if (sCode != EOL)
-                     {
-                     pPage->iError = TIFF_DECODE_ERROR;
-                     goto pilreadg4z;
-                     }
-                  goto pilreadg4z; /* Leave gracefully */
-               } /* switch */
-            } /* Slow climb */
-         }
-      /*--- Convert flips data into run lengths ---*/
-      *pCur++ = xsize;  /* Terminate the line properly */
-      *pCur++ = xsize;
-
-        // Draw the current line
-      bContinue = TIFFDrawLine(pPage, y, CurFlips);
+      // Draw the current line
+      bContinue = TIFFDrawLine(pPage, y, pPage->pCur);
       /*--- Swap current and reference lines ---*/
-      t1 = RefFlips;
-      RefFlips = CurFlips;
-      CurFlips = t1;
+      t1 = pPage->pRef;
+      pPage->pRef = pPage->pCur;
+      pPage->pCur = t1;
       } /* for */
-  pilreadg4z:
-//    pOutPage->iLinesDecoded = y; // tell caller how many lines successfully decoded
-//   if (pPage->iOptions & PIL_CONVERT_IGNORE_ERRORS)
-//      pPage->iError = 0; // suppress errors
-
    return pPage->iError;
-
 } /* Decode() */
