@@ -12,7 +12,7 @@ After testing graphics on some e-ink displays, I thought that my TIFF G4 decoder
 <br>
 Features:<br>
 ---------<br>
-- Supports any MCU with at least 16K of RAM (Cortex-M0+ is the simplest I've tested)
+- Supports any MCU with at least 2K of RAM (ATmega328 is the simplest I've tested)
 - Optimized for speed; the main limitation will be how fast you can copy the pixels to the display.
 - TIFF G4 image data can come from memory (FLASH/RAM), SDCard or any media you provide.
 - CCITT G4 data can be raw (you provide size info), or contained in a TIFF file structure.
