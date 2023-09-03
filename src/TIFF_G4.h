@@ -1,11 +1,28 @@
+//
+// CCITT G4 (T.6) decompressor
+// written by Larry Bank
+// Copyright (C) 2020 BitBank Software, Inc.
+//
+// Designed to decode and display 1-bpp CCITT G4
+// encoded images at any scale
+// with optional "scale-to-gray" enhancement
+//
+// For target systems with very little RAM, define the macro "NO_RAM"
+// This will decode more slowly, but allow the code to run on MCUs
+// with less than 2K of SRAM
+//
 #ifndef __TIFFG4__
 #define __TIFFG4__
+
+#define NO_RAM
+
 #if defined( __MACH__ ) || defined( __LINUX__ )
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdio.h>
 #define memcpy_P memcpy
+#define REENTRANT
 #define PROGMEM
 #define pgm_read_byte(s) *s
 #define pgm_read_word(s) *(int16_t *)s
@@ -25,15 +42,6 @@
 #define REENTRANT  
 #endif
 #endif
-//
-// One Bit Graphics library
-// Written by Larry Bank
-// Copyright (c) 2020 BitBank Software, Inc.
-// 
-// Designed to decode and display 1-bpp CCITT G4
-// encoded images at any scale
-// with optional "scale-to-gray" enhancement
-//
 
 /* Defines and variables */
 #ifdef __AVR__
@@ -129,6 +137,9 @@ typedef struct tiff_image_tag
     uint32_t ulBitOff, ulBits; // vlc decode variables
     uint8_t *pBuf; // current buffer pointer
     uint8_t ucCompression, ucPhotometric, ucFillOrder, ucAligned;
+#ifdef NO_RAM
+    uint8_t *pSrc;
+#else
     TIFF_READ_CALLBACK *pfnRead;
     TIFF_SEEK_CALLBACK *pfnSeek;
     TIFF_DRAW_CALLBACK *pfnDraw;
@@ -143,6 +154,7 @@ typedef struct tiff_image_tag
     int16_t RefFlips[MAX_IMAGE_WIDTH];
     uint8_t ucPixels[MAX_BUFFERED_PIXELS];
     uint8_t ucFileBuf[TIFF_FILE_BUF_SIZE]; // holds temp data and pixel stack
+#endif // NO_RAM
 } TIFFIMAGE;
 
 #ifdef __cplusplus
@@ -187,6 +199,7 @@ int TIFF_openTIFFFile(TIFFIMAGE *pImage, const char *szFilename, TIFF_OPEN_CALLB
     int TIFF_getHeight(TIFFIMAGE *pImage);
     int TIFF_getLastError(TIFFIMAGE *pImage);
     int TIFF_addData(TIFFIMAGE *pPage, uint8_t *pData, int iLen);
+    int TIFF_decode1Line(TIFFIMAGE *pImage, uint8_t *pCurrent, uint8_t *pPrevious);
 #endif
 
 // Due to unaligned memory causing an exception, we have to do these macros the slow way

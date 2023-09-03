@@ -24,6 +24,7 @@
 #include "TIFF_G4.h"
 
 // forward references
+#ifndef NO_RAM
 static int TIFFInit(TIFFIMAGE *pTIFF);
 static int TIFFParseInfo(TIFFIMAGE *pPage);
 static void TIFFGetMoreData(TIFFIMAGE *pPage);
@@ -31,7 +32,6 @@ static int Decode(TIFFIMAGE *pImage);
 static int Decode_Inc(TIFFIMAGE *pPage, int bHasMoreData);
 static int Add_Data(TIFFIMAGE *pPage, uint8_t *pData, int iLen);
 static void Decode_Inc_Begin(TIFFIMAGE *pPage, int iWidth, int iHeight, uint8_t ucFillOrder, TIFF_DRAW_CALLBACK *pfnDraw);
-
 // Scale to gray tables
 //
 // Top 4 bits = top line, bottom 4 bits = bottom line
@@ -81,6 +81,7 @@ const uint8_t  ucGray4BPP[256] PROGMEM = {0,4,4,8,0x40,0x44,0x44,0x48,0x40,0x44,
 0x84,0x88,0x88,0x87,0x74,0x78,0x78,0x77,0x74,0x78,0x78,0x77,0xf4,0xf8,0xf8,0xf7,  // 208-223
 0x84,0x88,0x88,0x87,0x74,0x78,0x78,0x77,0x74,0x78,0x78,0x77,0xf4,0xf8,0xf8,0xf7,  // 224-239
 0x88,0x87,0x87,0x8f,0x78,0x77,0x77,0x7f,0x78,0x77,0x77,0x7f,0xf8,0xf7,0xf7,0xff}; // 240-255
+#endif // NO_RAM
 /* Table of byte flip values to mirror-image incoming CCITT data */
 static const uint8_t ucMirror[256] PROGMEM =
      {0, 128, 64, 192, 32, 160, 96, 224, 16, 144, 80, 208, 48, 176, 112, 240,
@@ -281,6 +282,7 @@ static const int16_t black_l[1024] PROGMEM =
 //
 // Helper functions for memory based images
 //
+#ifndef NO_RAM
 static int32_t readMem(TIFFFILE *pFile, uint8_t *pBuf, int32_t iLen)
 {
     int32_t iBytesRead;
@@ -302,8 +304,9 @@ static int32_t seekMem(TIFFFILE *pFile, int32_t iPosition)
     pFile->iPos = iPosition;
     return iPosition;
 } /* seekMem() */
-#if defined( __LINUX__ ) || defined( __MCUXPRESSO )
+#endif // NO_RAM
 
+#if (defined( __LINUX__ ) || defined( __MCUXPRESSO )) && !defined (NO_RAM)
 static void closeFile(void *handle)
 {
     fclose((FILE *)handle);
@@ -331,13 +334,13 @@ static int32_t readFile(TIFFFILE *pFile, uint8_t *pBuf, int32_t iLen)
     pFile->iPos += iBytesRead;
     return iBytesRead;
 } /* readFile() */
-
 #endif // __LINUX__
 
 #ifndef __cplusplus
 //
 // C API
 //
+#ifndef NO_RAM
 int TIFF_openTIFFRAM(TIFFIMAGE *pImage, uint8_t *pData, int iDatasize, TIFF_DRAW_CALLBACK *pfnDraw)
 {
     memset(pImage, 0, sizeof(TIFFIMAGE));
@@ -385,23 +388,6 @@ int TIFF_openTIFFFile(TIFFIMAGE *pImage, const char *szFilename, TIFF_OPEN_CALLB
 } /* openTIFFFile() */
 #endif
 
-int TIFF_openRAW(TIFFIMAGE *pImage, int iWidth, int iHeight, int iFillOrder, uint8_t *pData, int iDataSize, TIFF_DRAW_CALLBACK *pfnDraw)
-{
-    memset(pImage, 0, sizeof(TIFFIMAGE));
-    pImage->pfnRead = readMem;
-    pImage->pfnSeek = seekMem;
-    pImage->pfnDraw = pfnDraw;
-    pImage->pfnOpen = NULL;
-    pImage->pfnClose = NULL;
-    pImage->TIFFFile.iSize = iDataSize;
-    pImage->TIFFFile.pData = pData;
-    pImage->iWidth = iWidth;
-    pImage->iHeight = iHeight;
-    pImage->ucFillOrder = (uint8_t)iFillOrder;
-    return 1;
-
-} /* openRAW() */
-
 void TIFF_close(TIFFIMAGE *pImage)
 {
     if (pImage->pfnClose)
@@ -420,6 +406,33 @@ void TIFF_setDrawParameters(TIFFIMAGE *pImage, float scale, int iPixelType, int 
 
 } /* setDrawParameters() */
 
+#endif // NO_RAM
+
+int TIFF_openRAW(TIFFIMAGE *pImage, int iWidth, int iHeight, int iFillOrder, uint8_t *pData, int iDataSize, TIFF_DRAW_CALLBACK *pfnDraw)
+{
+#ifdef NO_RAM
+    (void)pfnDraw;
+    pImage->iVLCSize = iDataSize;
+    pImage->pSrc = pImage->pBuf = pData;
+    pImage->ulBits = TIFFMOTOLONG(pData); // preload the first 32 bits of data
+#else
+    memset(pImage, 0, sizeof(TIFFIMAGE));
+    pImage->pfnRead = readMem;
+    pImage->pfnSeek = seekMem;
+    pImage->pfnDraw = pfnDraw;
+    pImage->pfnOpen = NULL;
+    pImage->pfnClose = NULL;
+    pImage->TIFFFile.iSize = iDataSize;
+    pImage->TIFFFile.pData = pData;
+#endif // NO_RAM
+    pImage->iWidth = iWidth;
+    pImage->iHeight = iHeight;
+    pImage->ucFillOrder = (uint8_t)iFillOrder;
+    return 1;
+
+} /* openRAW() */
+
+#ifndef NO_RAM
 int TIFF_decode(TIFFIMAGE *pImage)
 {
     return Decode(pImage);
@@ -447,6 +460,7 @@ int TIFF_getHeight(TIFFIMAGE *pImage)
 {
     return pImage->iHeight;
 } /* getHeight() */
+#endif // NO_RAM
 
 int TIFF_getLastError(TIFFIMAGE *pImage)
 {
@@ -463,6 +477,7 @@ int TIFF_getLastError(TIFFIMAGE *pImage)
 // returns 1 for success, 0 for failure
 // Fills in the basic image info fields of the TIFFIMAGE structure
 //
+#ifndef NO_RAM
 static int TIFFInit(TIFFIMAGE *pImage)
 {
     return TIFFParseInfo(pImage); // gather info for image
@@ -676,6 +691,7 @@ static void TIFFGetMoreData(TIFFIMAGE *pPage)
         pPage->iVLCSize += iBytesRead;
     }
 } /* TIFFGetMoreData() */
+
 //
 // Width is the doubled pixel width
 // Convert 1-bpp into RGB565
@@ -1002,8 +1018,315 @@ static void Decode_Begin(TIFFIMAGE *pPage)
     pPage->ulBitOff = pPage->iVLCOff = 0;
 
 } /* Decode_Begin() */
+#endif // NO_RAM
+
+#ifdef NO_RAM
 //
-// Decode a single line of G4 data
+// Find the X coordinate of the next color change
+//
+int NextColorChange(uint8_t *pData, int iStart, int iWidth, uint8_t ucColor)
+{
+    uint8_t *s;
+    uint8_t uc, ucMask;
+    int x = iStart;
+    
+    if (!pData) return iWidth;
+    ucMask = 0x80 >> (iStart & 7);
+    s = pData + (iStart >> 3);
+    uc = s[0];
+    if (!ucColor) { // current pixel is black, search for white
+        while (x < iWidth && !(uc & ucMask)) { // get out from under overhang
+            x++;
+            ucMask >>= 1;
+            if (ucMask == 0) {
+                s++;
+                uc = s[0];
+                ucMask = 0x80;
+            }
+        }
+        while (x < iWidth && (uc & ucMask)) {
+            if (uc == 0xff) { // we could test remaining bits, but it's not worth it
+                x += (8-(x & 7)); // skip whole or partial byte
+                s++;
+                uc = s[0];
+                ucMask = 0x80;
+            } else {
+                x++;
+                ucMask >>= 1;
+                if (ucMask == 0) {
+                    ucMask = 0x80;
+                    s++;
+                    uc = s[0];
+                }
+            }
+        }
+    } else { // current pixel is white, search for black
+        while (x < iWidth && (uc & ucMask)) { // get out from under overhang
+            x++;
+            ucMask >>= 1;
+            if (ucMask == 0) {
+                s++;
+                uc = s[0];
+                ucMask = 0x80;
+            }
+        }
+        while (x < iWidth && !(uc & ucMask)) {
+            if (uc == 0) { // we could test remaining bits, but it's not worth it
+                x += (8-(x & 7)); // skip whole or partial byte
+                s++;
+                uc = s[0];
+                ucMask = 0x80;
+            } else {
+                x++;
+                ucMask >>= 1;
+                if (ucMask == 0) {
+                    ucMask = 0x80;
+                    s++;
+                    uc = s[0];
+                }
+            }
+        }
+    }
+    if (x > iWidth) x = iWidth;
+    return x;
+} /* NextColorChange() */
+
+//
+// Draw a run of pixels in the given color
+//
+void DrawRun(uint8_t *pData, int iStart, int iEnd, uint8_t ucColor)
+{
+    int iLen = iEnd - iStart;
+    uint8_t ucMask, *d;
+    
+    if (!ucColor) return; // no need to draw white
+    d = pData + (iStart >> 3);
+    ucMask = 0x80 >> (iStart & 7);
+    
+  // draw black
+    while (iLen > 0) {
+        // try to draw a whole byte at a time
+        while (iLen >= 8 && ucMask == 0x80) {
+            *d++ = 0;
+            iLen -= 8;
+        }
+        d[0] &= ~ucMask;
+        iLen--;
+        ucMask >>= 1;
+        if (ucMask == 0) {
+            ucMask = 0x80;
+            d++;
+        }
+    } // while drawing
+} /* DrawRun() */
+
+//
+// Decode a single line of the image directly into the given buffer(s)
+//
+int TIFF_decode1Line(TIFFIMAGE *pPage, uint8_t *pCur, uint8_t *pRef)
+{
+    signed int a0, a0_c; //, b1;
+    int x, xsize, tot_run, tot_run1 = 0;
+    int32_t sCode;
+    uint32_t lBits;
+    uint32_t ulBits, ulBitOff;
+    uint8_t *d, *pBuf, *pBufEnd;
+
+    ulBits = pPage->ulBits;
+    ulBitOff = pPage->ulBitOff;
+    pBuf = pPage->pBuf;
+    pBufEnd = &pPage->pSrc[pPage->iVLCSize];
+
+    a0 = 0;
+    a0_c = 0; /* start just to left and white */
+    xsize = pPage->iWidth;
+    pPage->iError = TIFF_SUCCESS;
+    // pre-clear the line so we don't have to draw white runs
+    d = pCur;
+    for (x=0; x<xsize+7; x+= 8) {
+        *d++ = 0xff;
+    }
+    while (a0 < xsize) {  /* Decode this line */
+           if (ulBitOff > (REGISTER_WIDTH-8)) { // need at least 7 unused bits
+               pBuf += (ulBitOff >> 3);
+               ulBitOff &= 7;
+               ulBits = TIFFMOTOLONG(pBuf);
+           }
+           if ((int32_t)(ulBits << ulBitOff) < 0) { /* V(0) code */
+               //a0 = *pRef++;
+               x = NextColorChange(pRef, a0, xsize, a0_c);
+               ulBitOff++; // 1 bit
+               DrawRun(pCur, a0, x, a0_c);
+               a0_c = 1 - a0_c; /* color change */
+               //*pCur++ = a0;
+               a0 = x;
+           } else { /* Slow method */
+               lBits = (ulBits >> ((REGISTER_WIDTH - 8) - ulBitOff)) & 0xfe; /* Only the first 7 bits are useful */
+               sCode = pgm_read_byte(&code_table[lBits]); /* Get the code word */
+               ulBitOff += pgm_read_byte(&code_table[lBits+1]); /* Get the code length */
+               switch (sCode) {
+                   case 1: /* V(-1) */
+                   case 2: /* V(-2) */
+                   case 3: /* V(-3) */
+                       x = NextColorChange(pRef, a0, xsize, a0_c) - sCode;
+                       DrawRun(pCur, a0, x, a0_c);
+                       a0 = x;
+                       a0_c = 1-a0_c; /* color change */
+                       break;
+
+                   case 0x11: /* V(1) */
+                   case 0x12: /* V(2) */
+                   case 0x13: /* V(3) */
+                       x = NextColorChange(pRef, a0, xsize, a0_c) + (sCode & 7);
+                       DrawRun(pCur, a0, x, a0_c);
+                       a0 = x;
+                       a0_c = 1-a0_c; /* color change */
+                       break;
+
+                   case 0x20: /* Horizontal codes */
+                       if (a0_c) { /* Black case */
+                           CLIMBBLACK_NEW(pBuf, ulBitOff, ulBits, sCode)
+                           if (sCode < 0) {
+                               pPage->iError = TIFF_DECODE_ERROR;
+                               goto decode1z;
+                           }
+                           tot_run = sCode;
+                           CLIMBWHITE_NEW(pBuf, ulBitOff, ulBits, sCode)
+                           if (sCode < 0) {
+                               pPage->iError = TIFF_DECODE_ERROR;
+                               goto decode1z;
+                           }
+                           tot_run1 = sCode;
+                       } else { /* White case */
+                           CLIMBWHITE_NEW(pBuf, ulBitOff, ulBits, sCode)
+                           if (sCode < 0) {
+                               pPage->iError = TIFF_DECODE_ERROR;
+                               goto decode1z;
+                           }
+                           tot_run = sCode;
+                           CLIMBBLACK_NEW(pBuf, ulBitOff, ulBits, sCode)
+                           if (sCode < 0) {
+                               pPage->iError = TIFF_DECODE_ERROR;
+                               goto decode1z;
+                           }
+                           tot_run1 = sCode;
+                       }
+                       DrawRun(pCur, a0, a0+tot_run, a0_c);
+                       DrawRun(pCur, a0+tot_run, a0+tot_run+tot_run1, 1-a0_c);
+                       a0 += (tot_run + tot_run1);
+                       break;
+
+                   case 0x30: /* Pass code */
+                       x = NextColorChange(pRef, a0, xsize, a0_c);
+                       x = NextColorChange(pRef, x, xsize, 1-a0_c);
+                       DrawRun(pCur, a0, x, a0_c);
+                       a0 = x;
+                       break;
+
+                   case 0x40: /* Uncompressed mode */
+                       lBits = ulBits << ulBitOff;
+                       lBits &= 0xffc00000;
+                       if (lBits != 0x3c00000) { /* If not entering uncompressed mode */
+                           pPage->iError = TIFF_DECODE_ERROR;
+                           goto decode1z;
+                       }
+                       ulBitOff += 10;
+                       tot_run = 0; /* Current run length */
+                       if ((ulBits << ulBitOff) & TOP_BIT)
+                           goto blkst; /* Black start */
+                   whtst:
+                       if (pBuf > pBufEnd) {    /* Something is wrong, stop */
+                           pPage->iError = TIFF_DECODE_ERROR;
+                           goto decode1z;
+                       }
+                       tot_run1++;
+                       ulBitOff++;
+                       if (ulBitOff > (REGISTER_WIDTH - 8)) {
+                           pBuf += (ulBitOff >> 3);
+                           ulBitOff &= 7;
+                           ulBits = TIFFMOTOLONG(pBuf);
+                       }
+                       lBits = ulBits << ulBitOff;
+                       if ((lBits & TOP_BIT) == 0)
+                           goto whtst;
+                       /* Check for end of mode stuff */
+                       if (tot_run1 == 5) {
+                           tot_run += 5;
+                           tot_run1 = -1;
+                           goto whtst; /* Keep looking for white */
+                       }
+                       if (tot_run1 >= 6) { /* End of uncomp data */
+                           tot_run += tot_run1 - 6; /* Get the number of extra 0's */
+                           if (tot_run) { /* Something to store? */
+                               DrawRun(pCur, a0, a0+tot_run, a0_c);
+                               a0 += tot_run;
+//                               *pCur++ = a0;
+                           }
+                           /* Get the last bit to see what the next color is */
+                           ulBitOff++;
+                           if (ulBitOff > (REGISTER_WIDTH - 8)) {
+                               pBuf += (ulBitOff >> 3);
+                               ulBitOff &= 7;
+                               ulBits = TIFFMOTOLONG(pBuf);
+                           }
+                           lBits = ulBits << ulBitOff;
+                           lBits >>= (REGISTER_WIDTH - 1); /* Turn it into 0/1 for color */
+                           a0_c = sCode; /* This is the new color */
+                           break; /* Continue normal G4 decoding */
+                       } else {
+                           tot_run += tot_run1;
+                           DrawRun(pCur, a0, a0+tot_run, a0_c);
+                           a0 += tot_run; /* Add to current x */
+                           tot_run = 0;
+                           tot_run1 = 0;
+                       }
+                   blkst:
+                       if (pBuf > pBufEnd) {   /* Something is wrong, stop */
+                           pPage->iError = TIFF_DECODE_ERROR;
+                           goto decode1z;
+                       }
+                       tot_run++;
+                       ulBitOff++;
+                       if (ulBitOff > (REGISTER_WIDTH - 8)) {
+                           pBuf += (ulBitOff >> 3);
+                           ulBitOff &= 7;
+                           ulBits = TIFFMOTOLONG(pBuf);
+                       }
+                       lBits = ulBits << ulBitOff;
+                       if ((lBits & TOP_BIT) == TOP_BIT)
+                           goto blkst;
+                       DrawRun(pCur, a0, a0+tot_run, a0_c);
+                       a0 += tot_run;
+                       tot_run = 0;
+                       goto whtst;
+                   default: /* possible ERROR! */
+                /* A G4 page can end early with 2 EOL's */
+                       CLIMBWHITE_NEW(pBuf, ulBitOff, ulBits, sCode)
+                       if (sCode != EOL) {
+                           pPage->iError = TIFF_DECODE_ERROR;
+                           goto decode1z;
+                       }
+                       CLIMBWHITE_NEW(pBuf, ulBitOff, ulBits, sCode)
+                       if (sCode != EOL) {
+                           pPage->iError = TIFF_DECODE_ERROR;
+                           goto decode1z;
+                       }
+                       goto decode1z; /* Leave gracefully */
+               } /* switch */
+           } /* Slow climb */
+       }
+decode1z:
+    // Save the current VLC decoder state
+    pPage->ulBits = ulBits;
+    pPage->ulBitOff = ulBitOff;
+    pPage->pBuf = pBuf;
+    return pPage->iError;
+} /* TIFF_decode1Line() */
+#endif // NO_RAM
+
+#ifndef NO_RAM
+//
+// Decode a single line of G4 data (private function)
 //
 int Decode_one_line(TIFFIMAGE *pPage)
 {
@@ -1377,3 +1700,5 @@ static int Decode(TIFFIMAGE *pPage)
       } /* for */
    return pPage->iError;
 } /* Decode() */
+#endif // NO_RAM
+
