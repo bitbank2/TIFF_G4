@@ -1106,17 +1106,18 @@ void DrawRun(uint8_t *pData, int iStart, int iEnd, uint8_t ucColor)
   // draw black
     while (iLen > 0) {
         // try to draw a whole byte at a time
-        while (iLen >= 8 && ucMask == 0x80) {
+        if (iLen >= 8 && ucMask == 0x80) {
             *d++ = 0;
             iLen -= 8;
-        }
-        d[0] &= ~ucMask;
-        iLen--;
-        ucMask >>= 1;
-        if (ucMask == 0) {
-            ucMask = 0x80;
-            d++;
-        }
+        } else {
+       	    d[0] &= ~ucMask;
+       	    iLen--;
+       	    ucMask >>= 1;
+       	    if (ucMask == 0) {
+       	    ucMask = 0x80;
+       	    d++;
+            }
+	}
     } // while drawing
 } /* DrawRun() */
 

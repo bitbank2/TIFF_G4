@@ -14,8 +14,6 @@
 #ifndef __TIFFG4__
 #define __TIFFG4__
 
-#define NO_RAM
-
 #if defined( __MACH__ ) || defined( __LINUX__ )
 #include <stdlib.h>
 #include <string.h>
