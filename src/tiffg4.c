@@ -720,21 +720,21 @@ static void Scale2Color(TIFFIMAGE *pPage, int width)
         c = source[x];  // first 4x2 block
         d = source[x+iPitch];
         /* two lines of 8 pixels are converted to one line of 4 pixels */
-        ucPixels = (ucGray2BPP[(unsigned char)((c & 0xf0) | (d >> 4))] << 4);
-        ucPixels |= (ucGray2BPP[(unsigned char)((c << 4) | (d & 0x0f))]);
+        ucPixels = (pgm_read_byte(&ucGray2BPP[(unsigned char)((c & 0xf0) | (d >> 4))]) << 4);
+        ucPixels |= (pgm_read_byte(&ucGray2BPP[(unsigned char)((c << 4) | (d & 0x0f))]));
         *dest++ = ucPixels;
         c = source[x+1];  // next 4x2 block
         d = source[x+iPitch+1];
-        ucPixels = (ucGray2BPP[(unsigned char)((c & 0xf0) | (d >> 4))])<<4;
-        ucPixels |= ucGray2BPP[(unsigned char)((c << 4) | (d & 0x0f))];
+        ucPixels = (pgm_read_byte(&ucGray2BPP[(unsigned char)((c & 0xf0) | (d >> 4))]))<<4;
+        ucPixels |= pgm_read_byte(&ucGray2BPP[(unsigned char)((c << 4) | (d & 0x0f))]);
         *dest++ = ucPixels;
     }
     if (width & 4) // 2 more pixels to do
     {
         c = source[x];
         d = source[x + iPitch];
-        ucPixels = (ucGray2BPP[(unsigned char) ((c & 0xf0) | (d >> 4))]) << 4;
-        ucPixels |= (ucGray2BPP[(unsigned char) ((c << 4) | (d & 0x0f))]);
+        ucPixels = (pgm_read_byte(&ucGray2BPP[(unsigned char) ((c & 0xf0) | (d >> 4))])) << 4;
+        ucPixels |= (pgm_read_byte(&ucGray2BPP[(unsigned char) ((c << 4) | (d & 0x0f))]));
         dest[0] = ucPixels;
     }
   // Now convert to the requested foreground/background colors
@@ -775,21 +775,21 @@ static void Scale2Gray(uint8_t *source, int width, int iPitch)
         c = source[x];  // first 4x2 block
         d = source[x+iPitch];
         /* two lines of 8 pixels are converted to one line of 4 pixels */
-        ucPixels = (ucGray2BPP[(unsigned char)((c & 0xf0) | (d >> 4))] << 4);
-        ucPixels |= (ucGray2BPP[(unsigned char)((c << 4) | (d & 0x0f))]);
+        ucPixels = (pgm_read_byte(&ucGray2BPP[(unsigned char)((c & 0xf0) | (d >> 4))]) << 4);
+        ucPixels |= (pgm_read_byte(&ucGray2BPP[(unsigned char)((c << 4) | (d & 0x0f))]));
         *dest++ = ucPixels;
         c = source[x+1];  // next 4x2 block
         d = source[x+iPitch+1];
-        ucPixels = (ucGray2BPP[(unsigned char)((c & 0xf0) | (d >> 4))])<<4;
-        ucPixels |= ucGray2BPP[(unsigned char)((c << 4) | (d & 0x0f))];
+        ucPixels = (pgm_read_byte(&ucGray2BPP[(unsigned char)((c & 0xf0) | (d >> 4))]))<<4;
+        ucPixels |= pgm_read_byte(&ucGray2BPP[(unsigned char)((c << 4) | (d & 0x0f))]);
         *dest++ = ucPixels;
     }
     if (width & 4) // 2 more pixels to do
     {
         c = source[x];
         d = source[x + iPitch];
-        ucPixels = (ucGray2BPP[(unsigned char) ((c & 0xf0) | (d >> 4))]) << 4;
-        ucPixels |= (ucGray2BPP[(unsigned char) ((c << 4) | (d & 0x0f))]);
+        ucPixels = (pgm_read_byte(&ucGray2BPP[(unsigned char) ((c & 0xf0) | (d >> 4))])) << 4;
+        ucPixels |= (pgm_read_byte(&ucGray2BPP[(unsigned char) ((c << 4) | (d & 0x0f))]));
         dest[0] = ucPixels;
     }
 } /* Scale2Gray() */
