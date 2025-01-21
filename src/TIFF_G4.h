@@ -66,7 +66,8 @@ enum {
     TIFF_DECODE_ERROR,
     TIFF_UNSUPPORTED_FEATURE,
     TIFF_INVALID_FILE,
-    TIFF_NEED_MORE_DATA
+    TIFF_NEED_MORE_DATA,
+    TIFF_TOO_WIDE
 };
 //
 // Output pixel types

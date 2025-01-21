@@ -62,6 +62,13 @@ int TIFFG4::openRAW(int iWidth, int iHeight, int iFillOrder, uint8_t *pData, int
     _tiff.iWidth = iWidth;
     _tiff.iHeight = iHeight;
     _tiff.ucFillOrder = (uint8_t)iFillOrder;
+    // Default output values
+    _tiff.window.iScale = 65536; // 1.0 scale
+    _tiff.window.x = 0;
+    _tiff.window.y = 0; // upper left corner of interest (source pixels)
+    _tiff.window.iWidth = iWidth; // dest window size
+    _tiff.window.iHeight = iHeight;
+    _tiff.window.ucPixelType = TIFF_PIXEL_1BPP;
     return 1;
 } /* openRAW() */
 

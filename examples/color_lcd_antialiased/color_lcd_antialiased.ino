@@ -3,8 +3,8 @@
 // on a 240x135 color LCD display
 // using the 4-bpp anti-aliasing option
 //
-#include "test_images/notes.h"
 #include <TIFF_G4.h>
+#include "../test_images/notes.h"
 #include <bb_spi_lcd.h>
 
 #define DISPLAY_WIDTH 240

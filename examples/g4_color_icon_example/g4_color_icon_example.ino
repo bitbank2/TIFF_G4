@@ -1,7 +1,7 @@
 #include <TIFF_G4.h>
 #include <bb_spi_lcd.h>
-#include "weather_icons.h"
-#include "arduino_2clr.h"
+#include "test_images/weather_icons.h"
+#include "test_images/arduino_2clr.h"
 
 static uint8_t ucTXBuf[4096];
 static SPILCD lcd;

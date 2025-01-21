@@ -428,6 +428,13 @@ int TIFF_openRAW(TIFFIMAGE *pImage, int iWidth, int iHeight, int iFillOrder, uin
     pImage->iWidth = iWidth;
     pImage->iHeight = iHeight;
     pImage->ucFillOrder = (uint8_t)iFillOrder;
+    // Default output values
+    pImage->window.iScale = 65536; // 1.0 scale
+    pImage->window.x = 0;
+    pImage->window.y = 0; // upper left corner of interest (source pixels)
+    pImage->window.iWidth = iWidth; // dest window size
+    pImage->window.iHeight = iHeight;
+    pImage->window.ucPixelType = TIFF_PIXEL_1BPP;
     return 1;
 
 } /* openRAW() */
@@ -646,6 +653,10 @@ static int TIFFParseInfo(TIFFIMAGE *pPage)
     if (iSamples * iBpp != 1) // we only support 1-bpp images
     {
         pPage->iError = TIFF_UNSUPPORTED_FEATURE;
+        return 0;
+    }
+    if (pPage->iWidth > MAX_IMAGE_WIDTH) {
+        pPage->iError = TIFF_TOO_WIDE;
         return 0;
     }
     // Default output values
@@ -879,19 +890,21 @@ static int TIFFDrawLine(TIFFIMAGE *pPage, int y, int16_t *pCurFlips)
         {
             x = *pCurFlips++; // black starting point
             run = *pCurFlips++ - x; // get the black run
+            if (run < 0) {
+                return 0; // an error occurred - the run should never be negative in length
+            }
             x -= iStart;
           if (x >= xright || run == 0)
              break;
-          if ((x + run) > 0) /* If the run is visible, draw it */
-             {
-             if (x < 0)
-                {
-                run += x; /* draw only visible part of run */
-                x = 0;
+            if ((x + run) > 0) { /* If the run is visible, draw it */
+                if (x < 0) {
+                    run += x; /* draw only visible part of run */
+                    x = 0;
                 }
           /* Scale the starting x and run down to size */
-             if ((x + run) > xright) /* Don't let it go off right edge */
-                run = xright - x;
+                if ((x + run) > xright) { /* Don't let it go off right edge */
+                    run = xright - x;
+                }
              sx = (x * u32ScaleFactor)>>16;
              srun = (run * u32ScaleFactor)>>16;
              if (srun < 1) /* Always draw at least one pixel */
@@ -919,7 +932,7 @@ static int TIFFDrawLine(TIFFIMAGE *pPage, int y, int16_t *pCurFlips)
              }
           } /* while drawing line */
     obgd.ucLast = 0;
-    if (y == pPage->iHeight-1) // last line, force a final draw
+    if (y == pPage->iHeight-1 && obgd.ucPixelType >= TIFF_PIXEL_2BPP) // antialiased image at the last line, force a final draw
     {
         pPage->u32Accum = 0x20000;
         obgd.ucLast = 1;
