@@ -22,6 +22,7 @@ Features:<br>
 - Includes fast anti-aliasing options (2 or 4-bits per pixel output).
 - Can scale the decoded image by any fractional amount (smaller or larger).
 - The only code required is a callback function to use the pixels (emitted one line at a time).
+- Includes functional tests for Arduino and MacOS as well as fuzz tests for MacOS.
 
 Acquiring TIFF files:
 ---------------------
