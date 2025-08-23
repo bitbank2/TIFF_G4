@@ -14,7 +14,7 @@
 #ifndef __TIFFG4__
 #define __TIFFG4__
 
-#if defined( __MACH__ ) || defined( __LINUX__ )
+#if defined( __MACH__ ) || defined( __LINUX__ ) || defined( ESP_PLATFORM )
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
