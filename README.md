@@ -38,6 +38,11 @@ The API:
 --------
 Please consult the [Wiki](https://github.com/bitbank2/TIFF_G4/wiki) for detailed info about each method exposed by the TIFFG4 class. I've also provided a C interface to the library and example code which compiles from a makefile for Linux.<br>
 
+Automated builds and testing:
+-----------------------------
+
+![Alt text](https://github.com/commercetest/TIFF_G4/actions/workflows/c-cpp.yml/badge.svg)
+![Alt text](https://github.com/commercetest/TIFF_G4/actions/workflows/objective-c-xcode.yml/badge.svg)
 
 If you find this code useful, please consider becoming a sponsor or sending a donation.
 
